@@ -10,72 +10,146 @@ paraphrasing. Everything else here is implementation-facing.
 
 ## 0. Current implementation status
 
-A playable engine + CLI prototype exists, covering build-order steps 1, 2,
-3, and 5 (§7). Nothing SwiftUI-facing has been started — the project is
-currently a Swift Package, not an Xcode app target; see the note in §3.
+Every system in this guide is implemented and playable: the full v0.2
+engine (single hands, splits, Firmware, Patch Shop, all four Boss
+Corruptions, System Purge, Daily Breach) plus a real SwiftUI iOS app that
+builds, installs, and launches in the iOS Simulator. The CLI from the
+previous milestone still exists alongside it as a lighter playtest
+harness. What's *not* fully built is some of §6's animation fidelity —
+see the honest accounting near the end of this section before assuming a
+specific effect exists.
 
 **Run it:**
 
 ```
-swift build          # builds HackjackCore + HackjackCLI
-swift test            # 15 tests, all passing
-swift run HackjackCLI   # play a run in the terminal
+swift build && swift test          # HackjackCore + HackjackCLI, 31 tests
+swift run HackjackCLI               # terminal playtest harness
+
+xcodegen generate                    # regenerates Hackjack.xcodeproj from project.yml
+                                       # (the .xcodeproj itself is gitignored — never hand-edit it)
+xcodebuild -project Hackjack.xcodeproj -scheme Hackjack \
+  -destination 'platform=iOS Simulator,name=iPhone 17' build
+xcrun simctl install booted <path to the built .app in DerivedData>
+xcrun simctl launch booted com.hackjack.app
 ```
 
-**Built and working:**
+**Built and working — engine (`Sources/HackjackCore`):**
 
-- `HackjackCore` (library target): `Models/` (`Card`, `Corruption`,
-  `Hand`, `Hack`, `Shift`, `RunState`) and `Engine/` (`SeededGenerator`,
-  `CorruptionGenerator`, `GameEngine`, `DealerAI`, `ScoringEngine`), plus
-  `Resources/FlavorText.swift`.
-- `HackjackCLI` (executable target): a terminal harness that plays full
-  hands — deal, hit/stand, all five player hacks with targeting, dealer
-  turn, outcome, Shift progression across a run.
-- `Tests/HackjackCoreTests`: `CorruptionGeneratorTests`,
-  `GameEngineTests`, `DealerAITests` — 15 tests, seeded/deterministic,
-  no UI dependency.
-- Single hands, player hacks (Jack/Spoof/Crash/Patch/Peek), dealer hacks
-  (visible always, hidden shoe-targeting from Shift 4+), the
-  mutation-pair-shown-before-commit ordering (§5.1), and streak/currency/
-  Shift-advancement scoring (§5.10) all work end-to-end and are covered
-  by tests or a scripted playthrough.
+- All models from §4, including the previously-"planned" ones:
+  `Firmware.swift` (`FirmwareEffect`, `FirmwareMutation`, `FirmwareSlots`),
+  `ShopOffer.swift`, `BossCorruption.swift` (`HandRuleset` +
+  `BossCorruption`). `RunState` now carries `firmware`,
+  `handsPlayedThisShift`, `favorableMutationCharges`, `isDailyBreach`, and
+  `seed`.
+- `GameEngine` now tracks `playerHands: [Hand]` + `activeHandIndex`
+  instead of a single hand, supporting splits up to 4 hands with one
+  shared `HackChargePool` and lateral infection between adjacent hands
+  when a Leech resolves (§5.5).
+- Firmware offers (4 concrete effects), the Patch Shop (5 offer types,
+  generated on every Shift clear), all four Boss Corruptions (triggered
+  deterministically on each Shift's clearing hand), System Purge (a
+  hands-played meter, since every hand already rebuilds its own shoe —
+  see the §5.9 note on why this isn't literal density accumulation), and
+  `RunState.dailyBreach(dateKey:)` for deterministic seeded runs.
+- A latent bug fix: Jack/Spoof/Crash used to mark a card `sparkTell =
+  .visible` without ever giving it a `pendingMutations` pair, so a
+  player-hacked card could show as sparking but never resolve. All three
+  now route through `CorruptionGenerator.markSparking` like every other
+  corruption source.
+- `Tests/HackjackCoreTests`: 31 tests across `CorruptionGeneratorTests`,
+  `GameEngineTests`, `DealerAITests`, and the new `AdvancedSystemsTests`
+  (splits, Firmware, shop, bosses, Purge, Daily Breach).
 
-**Not started:** splits (§5.5), Firmware (§5.6), Patch Shop (§5.7), Boss
-Corruptions (§5.8), System Purge (§5.9), Daily Breach, and all SwiftUI
-rendering (§6). The `Models/` sketches for those systems in §4 are still
-the plan — nothing there exists in code yet.
+**Built and working — app (`Sources/HackjackApp`, `project.yml`):**
 
-**Known deviations from this guide, worth reconciling before relying on
-either the doc or the code blindly:**
+- A real iOS app target, generated via `xcodegen` rather than a
+  hand-authored `.xcodeproj`. Depends on `HackjackCore` as a local SPM
+  package product (`Package.swift` now declares that product and adds
+  `.iOS(.v17)`).
+- `GameViewModel` (`@Observable`) wraps `GameEngine` and snapshots its
+  public state after every call — `GameEngine` itself has zero SwiftUI
+  dependency, per §3.
+- `TableView` + `CardView`/`HandRowView` render the live table: dealer
+  and all player hands, active-hand highlighting during splits,
+  bust/blackjack badges, a hack tray that arms a hack type and commits it
+  on the next card tap, a boss banner, and Firmware/Shop overlays driven
+  directly by `pendingFirmwareOffer`/`pendingShopOffers`.
+- Verified in the iOS Simulator (booted "iPhone 17", Xcode 26.3):
+  `xcodebuild` succeeds, the `.app` installs and launches via `simctl`,
+  and a screenshot confirms it renders real dealt cards and correct
+  status-bar state pulled from the engine (Shift/streak/charges/
+  currency/Firmware counts all matched what the engine reported). The
+  process ran without crashing or logging a fatal error over several
+  minutes (checked via `simctl spawn booted log show`).
+- **Not verified: interactive taps.** This sandbox has no working path to
+  drive the Simulator's UI programmatically — `xcrun simctl` has no
+  tap/touch primitive, and `osascript`/System Events can't reach the
+  Simulator app's windows here (`Can't get window 1 of process
+  "Simulator"`, even though the process itself is visible to System
+  Events). So button-tap → engine-call → re-render was never exercised
+  end-to-end *through the UI*. Confidence instead comes from: the 31
+  engine tests, the CLI exercising the identical `GameEngine` calls the
+  ViewModel makes, and a straightforward, unsurprising SwiftUI wiring
+  (each button's action directly calls one `GameViewModel` method). If
+  you have a way to drive the Simulator in this environment, that's the
+  gap to close next.
 
-- **No Xcode app target yet.** §3's file tree assumes an app project.
-  What actually exists is an SPM package (`Package.swift`) with a library
-  + CLI executable + test target — the console-harness milestone §7 step
-  2 called for, done one step further (it also covers steps 3 and 5).
-  When SwiftUI work starts, it needs its own target/app added to
-  `Package.swift` (or a separate Xcode project depending on
-  `HackjackCore`), plus `App/`, `Views/`, and `Resources/Audio/`.
-- **RunState is smaller than §4's sketch.** No `firmware`, `isDailyBreach`,
-  or `seed` fields — those belong to systems that don't exist yet.
-  `GameEngine.init(seed:)` takes a seed directly instead; move it onto
-  `RunState` when Daily Breach is actually built, per §5.10.
-- **`ShiftConfig` has no `boss` field** and there's no `HandRuleset`/
-  `BossCorruption` protocol yet — both are still just the §4/§8 plan.
+**Known simplifications versus §6's rendering plan — real gaps, not
+polish to get to eventually:**
+
+- **Card flip is a scale+opacity crossfade, not a Y-axis 3D flip.**
+  `CardView` swaps `front`/`back` content behind a plain
+  `.transition(.scale.combined(with: .opacity))`. §6 calls the true
+  `rotation3DEffect` flip "a common, solved pattern" — it probably is,
+  but getting the axis/mirroring right without a live preview loop in
+  this environment was a real risk, and the crossfade reads fine as "a
+  card just resolved." Worth revisiting with actual device/preview
+  iteration.
+- **Deal animation uses SwiftUI's implicit list-diff transitions**
+  (cards scale+fade in as they're appended to a hand's `cards` array),
+  not the `matchedGeometryEffect` shoe→hand-slot animation §6 describes.
+  There's no on-screen shoe view to animate *from* at all right now.
+- **No dedicated hack-resolve shake+flash.** A resolved spark is only
+  visible via the card's content changing (rank swaps) and the shimmer
+  stopping — there's no explicit `.spring()` shake or color-flash
+  overlay marking the moment of resolution.
+- **No distinct hidden-hack tell.** §5.2 specifies a muffled,
+  edge-of-screen flicker for dealer hidden hacks, separate from the
+  sharp on-card shimmer used for visible hacks. Right now a hidden hack
+  is only visible via the log feed text line — there's no dedicated
+  low-opacity overlay view at all. This is a real deviation from the
+  "spark is the only tell, no text" rule in §5.2, not just missing
+  polish.
+- **No lateral-infection thread.** The engine mechanic (§5.5) works and
+  is tested; the `Path`/dash-phase visual connecting adjacent hands
+  described in §6 doesn't exist. Infection is only visible as a log line
+  plus the newly-sparked card's own shimmer.
+- **Boss one-off visual states don't exist.** Blue Screen and Ghost
+  Protocol get the same generic boss banner as Firewall Down/Root
+  Access — no full-shoe-spark visual treatment, no audio-only handling.
+- **No sound at all.** §7 step 13 flagged sound as load-bearing for
+  Ghost Protocol and hidden hacks specifically; none exists yet, so
+  Ghost Protocol currently has no way to telegraph a hack except the log
+  line, which undercuts its whole "audio only, no visual tell" premise.
+
+**Other known deviations, carried forward from the previous milestone:**
+
 - **`Hand.isBusted`/`isBlackjack` are computed properties**, not stored,
-  and `PlayerHackType` carries no `baseCost` — hack cost logic (including
-  Patch's Critical-state doubling) lives in `GameEngine.hackCost(_:)`
-  instead. Functionally equivalent to §4/§5.3, just organized differently.
-- **§8's "hard cap of 1 hidden-hack attempt per hand" is not implemented.**
-  `DealerAI.maybeHack` rolls independently on every player action once
-  Shift 4+ unlocks hidden hacks, so a long hit streak can draw more than
-  one hidden hack in a single hand. Flagged here as a real gap, not
-  reconciled yet — decide whether to add the cap or update §8 to match.
-- **Flavor text shipped as pools, not single canonical lines.** §9 was
-  written when each event had exactly one line; `FlavorText.swift` now
-  picks randomly from a 2-4 line pool per event (added after playtesting
-  found single fixed lines went flat on repeat). §9 below has been
-  updated to match — treat the lines there as "what's in the pool," not
-  "the one canonical line."
+  and hack cost logic (including Patch's Critical-state doubling) lives
+  in `GameEngine.hackCost(_:)` rather than on `PlayerHackType` itself.
+  Functionally equivalent to §4/§5.3, just organized differently.
+- **§8's "hard cap of 1 hidden-hack attempt per hand" is still not
+  implemented.** `DealerAI.maybeHack` rolls independently on every
+  player action once Shift 4+ unlocks hidden hacks; `attempts: 2` (Root
+  Access) makes this more pronounced, not less. Decide whether to add
+  the cap or update §8 to match.
+- **`BossCorruption` is an enum, not the §4 protocol sketch.** Four
+  fixed, non-extensible-at-runtime cases didn't need the indirection;
+  switch exhaustiveness catches a missed case the same way a missing
+  conformance would.
+- **Flavor text is pooled, not single canonical lines** — §9 documents
+  the actual pools, including new Leech and System Purge lines the
+  original v0.2 doc didn't have.
 
 ---
 
@@ -117,12 +191,14 @@ a future particle-heavy pass demands it. Structure as MVVM with an explicit
 state-machine engine driving a `RunState`, kept separate from views so game
 logic is unit-testable without SwiftUI.
 
-Actual current layout (SPM package — see §0 for why this differs from an
-Xcode app target):
+Actual current layout — an SPM package (`Package.swift`) for the
+UI-independent core plus CLI, and a separate `xcodegen`-generated iOS app
+target that depends on it:
 
 ```
 hackjack/
-  Package.swift
+  Package.swift                       # declares HackjackCore as a library product, adds .iOS(.v17)
+  project.yml                          # xcodegen spec for the iOS app target — see below
   Sources/
     HackjackCore/                   # ✅ built — no import SwiftUI anywhere in here
       Models/
@@ -132,49 +208,60 @@ hackjack/
         Hack.swift                       # PlayerHackType, DealerHackType, HackChargePool
         Shift.swift                       # ShiftConfig + .standard(index:) defaults
         RunState.swift                     # RunState, HandOutcome
+        Firmware.swift                       # FirmwareEffect, FirmwareMutation, FirmwareSlots
+        ShopOffer.swift                       # ShopOffer, ShopOfferKind
+        BossCorruption.swift                   # HandRuleset, BossCorruption (enum, not protocol — see §0)
       Engine/
         SeededGenerator.swift          # SplitMix64 deterministic RNG
         CorruptionGenerator.swift       # shoe build, mutation-pair rolls, resolve()
-        GameEngine.swift                 # deal/hit/stand/hacks/dealer turn/settle
-        DealerAI.swift                    # dealer hack targeting + Shift scaling
+        GameEngine.swift                 # deal/hit/stand/split/hacks/dealer turn/settle, boss+shop+firmware+purge hooks
+        DealerAI.swift                    # dealer hack targeting + Shift scaling, splits-aware
         ScoringEngine.swift                # streak/currency, Shift advancement
       Resources/
         FlavorText.swift               # pooled, randomly-picked copy (see §9)
     HackjackCLI/
-      main.swift                      # ✅ built — terminal playtest harness
+      main.swift                      # ✅ built — terminal playtest harness (multi-hand, shop, firmware aware)
+    HackjackApp/                      # ✅ built — the real iOS app
+      App/
+        HackjackApp.swift               # @main App entry point
+      ViewModels/
+        GameViewModel.swift              # @Observable wrapper snapshotting GameEngine state
+      Views/
+        ContentView.swift                 # hosts TableView
+        TableView.swift                    # main game screen: status bar, hands, hack tray, overlays
+        Table/
+          CardView.swift                     # single-card render + shimmer
+          HandRowView.swift                    # one hand's row, active-hand highlight
+        Sheets/
+          FirmwareOfferOverlayView.swift        # keep/decline overlay
+          ShopOverlayView.swift                  # Patch Shop overlay
   Tests/
-    HackjackCoreTests/                # ✅ built — 15 tests, `swift test`
+    HackjackCoreTests/                # ✅ built — 31 tests, `swift test`
       CorruptionGeneratorTests.swift
       GameEngineTests.swift
       DealerAITests.swift
+      AdvancedSystemsTests.swift       # splits, Firmware, shop, bosses, Purge, Daily Breach
 ```
 
-Not yet created (still the plan, not a description of code that exists):
+`Hackjack.xcodeproj` is generated from `project.yml` by `xcodegen
+generate` and is gitignored — regenerate it after adding new files under
+`Sources/HackjackApp` (or rely on Xcode 16+'s folder-synchronized groups
+picking them up automatically; regenerating is the safe default either
+way). `Sources/HackjackApp` is deliberately *not* declared as a target in
+`Package.swift`, so `swift build`/`swift test` at the repo root never try
+to compile it — only `xcodebuild` (via the generated project) does.
 
-```
-  Models/
-    Firmware.swift              # FirmwareMutation, FirmwareSlots
-    BossCorruption.swift         # BossCorruption protocol + concrete bosses, HandRuleset
-    ShopOffer.swift                # ShopOffer, ShopState, pricing
-  Engine/
-    DailyBreach.swift             # seeded RunState.seed-driven mode
-  App/
-    HackjackApp.swift               # needs a SwiftUI app target added to Package.swift
-  Views/
-    Table/                     # TableView, HandView, CardView, ShoeView
-    Hacks/                      # HackTrayView, HackConfirmView
-    Shop/                       # PatchShopView, ShopOfferCardView
-    Firmware/                    # FirmwareRailView, FirmwareSlotView
-    BossIntro/                    # BossCorruptionIntroView
-    Effects/                       # SparkShimmer, HiddenHackFlicker, InfectionThreadView
-  Resources/
-    Audio/                       # spark hum, zap, hack confirms, purge stings
-```
+Not yet created: `Resources/Audio/` and any dedicated effects views
+(`Effects/SparkShimmer.swift` etc. from the original sketch were folded
+directly into `CardView` instead of split out — see §0 for the real gaps
+in rendering fidelity versus §6).
 
-Keep `Engine/` and `Models/` free of `import SwiftUI`. Views observe engine
-state via `@Observable` (or `ObservableObject` if targeting pre-iOS 17) and
-dispatch intents (`engine.playerHits(handID:)`) rather than mutating state
-directly.
+`GameEngine`/`Models` remain free of `import SwiftUI`, as planned.
+`GameViewModel` is the `@Observable` bridge — it owns a `GameEngine`
+instance and re-snapshots its public state into its own properties after
+every call, since a plain class's property mutations aren't otherwise
+tracked by SwiftUI's observation system. Views only ever call
+`GameViewModel` methods, never touch `GameEngine` directly.
 
 ---
 
@@ -213,8 +300,8 @@ enum MutationType: CaseIterable, Sendable { case volatileValue, overload, leech,
 struct Hand: Identifiable, Sendable {
     let id: UUID
     var cards: [Card]
-    var isSplitChild: Bool           // stored, unused until splits ship
-    var adjacentHandIDs: [UUID]       // stored, unused until splits ship
+    var isSplitChild: Bool           // ✅ set on split children (GameEngine.playerSplit)
+    var adjacentHandIDs: [UUID]       // ✅ linked by GameEngine.relinkAdjacency after every split
     var isStood: Bool
     var bestValue: Int { get }          // computed, soft-ace aware
     var isBusted: Bool { get }           // computed: bestValue > 21
@@ -230,7 +317,7 @@ enum DealerHackType: String, CaseIterable, Sendable { case jack, spoof, crash } 
 struct HackChargePool: Sendable {
     var current: Int
     var max: Int
-    mutating func spend(_ amount: Int) -> Bool   // shared across all live hands once splits ship
+    mutating func spend(_ amount: Int) -> Bool   // ✅ shared across all live hands — one pool on RunState, not per-Hand
 }
 
 // Shift.swift
@@ -250,58 +337,77 @@ struct RunState: Sendable {
     var chargePool: HackChargePool
     var shopCurrency: Int
     var removedCorruptionTypes: Set<MutationType>
+    var firmware: FirmwareSlots
+    var handsPlayedThisShift: Int          // drives System Purge (§5.9)
+    var favorableMutationCharges: Int       // shop's "guarantee a favorable range" token (§5.7)
+    var isDailyBreach: Bool
+    var seed: UInt64?                        // GameEngine seeds from this when set (§5.10)
+
+    static func dailyBreach(dateKey: String) -> RunState   // FNV-1a hash of e.g. "2026-07-20" -> seed
 }
 
 enum HandOutcome: Sendable {
     case playerBlackjack, dealerBlackjack, playerBust, dealerBust, playerWin, dealerWin, push
 }
-```
 
-Deliberately absent from the current `RunState`/`ShiftConfig`, versus the
-original plan: `firmware`, `isDailyBreach`, `seed` (RunState) and `boss`
-(ShiftConfig) — all belong to systems below that aren't built yet. Add
-them back when those systems land, not before (per the "no unused
-abstractions" rule — an empty `FirmwareSlots` sitting in `RunState` today
-would be dead weight).
-
-### 4b. Planned — not yet implemented
-
-These sketches are still the spec for Firmware, the Patch Shop, and Boss
-Corruptions. Nothing below exists in code; build it when §7 reaches that
-step.
-
-```swift
-struct FirmwareMutation: Identifiable {
-    let id: UUID
-    let type: MutationType
-    var description: String       // flavor-specific, generated at the moment it's kept
+// Firmware.swift
+enum FirmwareEffect: String, CaseIterable, Equatable, Sendable {
+    case guardDaemon    // first spark each hand resolves as a free Patch
+    case aceStorm        // shoe generation biased toward extra Aces after the normal build
+    case twinnerLoop       // Twinner/Volatile Value biased over Overload/Leech on resolve
+    case leechWard           // Leech can't drain a card's integrity below 50
 }
 
-struct FirmwareSlots {
-    var capacity: Int   // starts 3, shop-expandable, cap ~6-7 per open question
+struct FirmwareMutation: Identifiable, Sendable {
+    let id: UUID
+    let effect: FirmwareEffect
+}
+
+struct FirmwareSlots: Sendable {
+    var capacity: Int   // starts 3, shop-expandable
     var equipped: [FirmwareMutation]
     var isFull: Bool { equipped.count >= capacity }
+    func has(_ effect: FirmwareEffect) -> Bool
 }
 
-protocol BossCorruption {
+// ShopOffer.swift
+enum ShopOfferKind: Sendable, Hashable {
+    case extraCharge, favorableMutationToken, removeCorruptionType, extraFirmwareSlot, reroll
+}
+
+struct ShopOffer: Identifiable, Sendable {
+    let id: ShopOfferKind
+    let title: String
+    let description: String
+    let cost: Int
+}
+
+// BossCorruption.swift
+struct HandRuleset: Sendable {
+    var patchAllowed = true
+    var dealerHackAttemptMultiplier = 1
+    var playerBonusCharges = 0
+    var hiddenHacksOnly = false
+    var fullShoeSpark = false
+}
+
+enum BossCorruption: CaseIterable, Equatable, Sendable {
+    case firewallDown, rootAccess, blueScreen, ghostProtocol
     var name: String { get }
     var introLine: String { get }
-    func modify(_ ruleset: inout HandRuleset)  // e.g. Firewall Down disables Patch
+    func apply(to ruleset: inout HandRuleset)
+    static func forShift(index: Int) -> BossCorruption   // deterministic: allCases[(index-1) % 4]
 }
-
-// Add to ShiftConfig once bosses exist: let boss: BossCorruption
-// Add to RunState once Firmware/Daily Breach exist:
-//   var firmware: FirmwareSlots
-//   var isDailyBreach: Bool
-//   var seed: UInt64?   // GameEngine.init(seed:) already takes this directly today —
-//                       // move the source of truth here when Daily Breach is built
 ```
 
-`HandRuleset` is a small mutable struct (`patchAllowed: Bool`,
-`dealerChargeMultiplier: Int`, `hiddenHacksOnly: Bool`, `fullShoeSpark:
-Bool`) that the engine builds fresh each hand and lets the active
-`BossCorruption` mutate before dealing. This keeps boss one-offs from
-branching the engine's control flow with special cases.
+`BossCorruption` is an enum, not the protocol this section originally
+sketched — see §0 for why. `HandRuleset` is built fresh by
+`GameEngine.startHand()` every hand and left at its defaults unless
+`streakWithinShift == targetStreak - 1` (i.e. this hand would clear the
+Shift), in which case `BossCorruption.forShift(index:)` picks a boss
+deterministically and mutates the ruleset — same Shift always gets the
+same boss across retries, since boss assignment depends on Shift index,
+not RNG seed.
 
 ---
 
@@ -327,12 +433,17 @@ to which mutation fired). `GameEngine.resolvePendingSparks(in:)` is what
 actually calls `resolve` at the right moment (top of `playerHit`/
 `playerStand`/dealer's hit loop) — that's where the "shown before commit"
 ordering above is enforced; `GameEngineTests.testPendingSparkSurvivesUntilACommittingAction`
-covers it directly via seeded trials. `Twinner`'s "duplicate another card"
-and `Leech`'s "steal integrity from an adjacent hand" both fall back to a
-same-hand behavior for now (see 5.5 — no adjacent hand exists until
-splits ship).
+covers it directly via seeded trials. `Twinner`'s "duplicate another
+card" only ever looks within the same hand (`otherRanksInHand`) — it has
+no cross-hand behavior even now that splits exist, which is a reasonable
+reading of "another card," not a gap. `Leech` does two things on resolve:
+directly drains its own card's integrity (`CorruptionGenerator.apply`,
+unconditional), and — only when splits are live — a 50% chance to spread
+to an unsparked card in an adjacent hand, handled by
+`GameEngine.applyLateralInfection` since `CorruptionGenerator` has no
+visibility into sibling hands (§5.5).
 
-### 5.2 The Spark tell — ✅ implemented, CLI-text form (see §6 for the real rendering plan)
+### 5.2 The Spark tell — ✅ implemented, partially — visible tell only; hidden tell is CLI-text only
 
 Single source of truth: `Card.sparkTell`. Rendering must not derive "is
 this card hacked" from any other state — the engine sets this field and
@@ -349,11 +460,19 @@ No other UI element (no HUD banner, no toast) may announce a hack. If a
 feature request asks for "tell the player what got hacked," the answer is
 "strengthen the spark rendering," not "add text."
 
-The CLI necessarily violates the letter of this rule today — it's a
-terminal, so `[SPARK]` tags and log lines *are* the only UI available.
-`Card.sparkTell` is still the single source of truth the CLI reads from,
-which is the part of this rule that has to hold once real rendering
-exists; the "no text" part is specifically about the SwiftUI build.
+`CardView` in the SwiftUI app implements `.visible` correctly: it reads
+`card.pendingMutations`/`card.sparkTell` directly (no re-derived state)
+and drives a shimmer (subtle rotation + scale jitter) purely off that.
+`.hidden` is not implemented as a distinct visual anywhere — the app has
+no edge-of-screen flicker overlay at all, so a dealer hidden hack is
+currently only visible via the log feed's text line. That's a real gap
+against this section, not just missing polish (see §0). The CLI
+necessarily violates the letter of this rule too — it's a terminal, so
+`[SPARK]` tags and log lines are the only UI available there — but
+`Card.sparkTell` is still the single source of truth both surfaces read
+from, which is the part of this rule that actually matters structurally;
+the "no text, spark only" part is specifically a rendering-layer
+obligation that's only half met.
 
 ### 5.3 Hacking — player — ✅ implemented (`GameEngine.playerHack(_:targetIsDealer:cardID:)`)
 
@@ -372,8 +491,9 @@ Each hack:
 - **Peek**: reveal the dealer's hole card for 1 second, UI-only (no state
   change), then re-hide.
 
-All five draw from the single shared `HackChargePool`. ("Including across
-split hands" doesn't apply yet — see 5.5.) Cost is `hackCost(_:)`: 1
+All five draw from the single shared `HackChargePool`, including across
+split hands (§5.5) — there's exactly one pool on `RunState`, never a
+per-`Hand` one. Cost is `hackCost(_:)`: 1
 charge for everything except Patch, which is 2 when the Shift's midpoint
 corruption density is ≥ 0.35 ("Critical" band, per the threshold this
 guide originally left vague). Jack's rank shift is
@@ -402,22 +522,24 @@ spends a hack:
 Keep dealer targeting logic isolated in `DealerAI` so it can be unit
 tested against fixed RNG seeds independent of rendering.
 
-Steps 1-3 are implemented and tested (`DealerAITests` — locked out below
-Shift 4, reachable above it, across 500 seeded trials each way). Step 4
-is not — there's no `HandRuleset` yet, so Root Access/Ghost Protocol
-overrides don't exist. **Also not implemented: the §8 "hard cap of 1
-hidden-hack attempt per hand" default.** `maybeHack` rolls independently
-on every player action with no per-hand counter, so a long hit streak in
-a late Shift can, in principle, draw more than one hidden hack in a
-single hand. Either add the cap or update §8 — currently the code and
-the stated default disagree.
+All four steps are implemented and tested (`DealerAITests` — locked out
+below Shift 4, reachable above it, `forceHidden` always wins, `attempts:
+2` can land two hacks — each across seeded trials). Root Access sets
+`dealerHackAttemptMultiplier = 2`, which `GameEngine.dealerMaybeHack()`
+turns into `DealerAI.maybeHack(attempts: 2, ...)`; Ghost Protocol sets
+`hiddenHacksOnly = true`, passed through as `forceHidden: true`. **Still
+not implemented: the §8 "hard cap of 1 hidden-hack attempt per hand"
+default.** `maybeHack` rolls independently on every player action with
+no per-hand counter, and Root Access's `attempts: 2` makes this more
+pronounced now, not less. Either add the cap or update §8 — the code and
+the stated default still disagree.
 
 The "shoe-resident analog of a face-down card" targeting for hidden hacks
 always hits `shoe[0]` (the next card due to be dealt) — reasonable for
 single-hand play where the player's own cards are always face-up; revisit
 once real face-down dealing (if any) or splits change what "hidden" means.
 
-### 5.5 Splits — ⬜ planned, not implemented
+### 5.5 Splits — ✅ implemented (`GameEngine.playerSplit`, `playerHands: [Hand]`)
 
 - Trigger: pair, standard rule. Cap at 4 live hands.
 - All hands drawn from the split share `chargePool` — do not give hands
@@ -432,7 +554,27 @@ once real face-down dealing (if any) or splits change what "hidden" means.
   deliberate per the design doc, don't leak the target through render
   position.
 
-### 5.6 Firmware (persistent mutations) — ⬜ planned, not implemented
+`canSplitActiveHand()` gates on a same-rank pair and `playerHands.count <
+4`. Splitting draws one new card per resulting hand and re-links
+`adjacentHandIDs` for every hand via `relinkAdjacency()`, called after
+every split so a 3- or 4-hand table's adjacency stays correct, not just
+the two hands that just split. Lateral infection is a flat 50% roll onto
+a random adjacent hand's *unsparked* card, only triggered when a Leech
+resolves (`GameEngine.applyLateralInfection`) — implemented this way
+because `CorruptionGenerator` has no visibility into sibling hands by
+design (§5.1). The last bullet — rendering the `.hidden` tell ambiguously
+near a split cluster's shared edge — is not implemented; there's no
+dedicated hidden-hack visual at all yet (§0, §5.2).
+
+One Swift-specific note worth keeping: resolving a spark on
+`playerHands[activeHandIndex]` and then triggering lateral infection on a
+*different* index of `playerHands` in the same breath isn't legal —
+mutating one array element via `inout` exclusively borrows the whole
+array for the call's duration. `GameEngine` works around this by copying
+the active hand out, resolving on the copy, writing it back, and only
+then touching sibling elements once the borrow has ended.
+
+### 5.6 Firmware (persistent mutations) — ✅ implemented, 4 effects (doc called for 4-6)
 
 - Trigger to *offer* a Firmware keep: a hand resolves in the player's
   favor and a corrupted card was involved in that resolution.
@@ -447,7 +589,24 @@ once real face-down dealing (if any) or splits change what "hidden" means.
   among them since they're the doc's example of "where run identity comes
   from."
 
-### 5.7 Patch Shop — ⬜ planned, not implemented
+Shipped as `FirmwareEffect` (a fixed enum, not an open closure system —
+four cases don't need one): **Guard Daemon** (first spark each hand
+resolves as a free Patch), **Ace Storm** (post-processes a freshly-built
+shoe to bias a few cards toward Ace), **Twinner Loop** (biases spark
+resolution toward Twinner/Volatile Value over Overload/Leech when the
+pair allows it), **Leech Ward** (floors Leech's integrity drain at 50
+instead of 0). The doc's suggested Overload+Ace Storm synergy pair isn't
+literally implemented as a named combo — Ace Storm just makes Aces more
+common, which happens to synergize with anything wanting big cards, but
+there's no explicit "these two amplify each other" hook. Offer trigger
+(`GameEngine.checkFirmwareOffer`) matches the spec: player-favorable
+outcome (win/blackjack/dealer-bust) plus at least one resolved mutation
+that hand. `keepFirmwareOffer(replacing:)` supports swapping out a full
+slot; an unresolved offer is silently dropped at the next `startHand()`
+rather than blocking (§0's documented UI-doesn't-have-to-respond
+tradeoff).
+
+### 5.7 Patch Shop — ✅ implemented (`GameEngine.generateShopOffers`/`purchaseShopOffer`)
 
 Between-Shift screen, purchasable with `shopCurrency`:
 
@@ -463,7 +622,21 @@ Model each offer as a `ShopOffer` with a `cost: Int` and an `apply:
 changes elsewhere — the shop should be the only place that reads/writes
 `RunState` outside the engine itself.
 
-### 5.8 Boss Corruptions — ⬜ planned, not implemented
+Implemented with a `switch` inside `purchaseShopOffer(_:)` rather than a
+per-offer closure — five fixed offer types didn't justify the closure
+indirection, same call as Boss Corruptions (§5.8). All five from the list
+above exist; "guarantee a favorable range" became `favorableMutationCharges`,
+consumed one-per-spark and biasing away from Leech when the pair allows
+it (not a literal "next 3 sparks always land the single best outcome" —
+see `favorablePick(from:)`). Offers regenerate after every purchase so
+availability gating stays correct (e.g. corruption-type removal stops
+being offered once only 2 types remain — `CorruptionGenerator` requires
+at least 2 survive). Reroll's "effect" is exactly that regeneration, so
+it doesn't do anything visibly different from any other purchase besides
+costing 1 and not otherwise changing state — a thinner reroll than a full
+implementation would probably want, worth revisiting.
+
+### 5.8 Boss Corruptions — ✅ implemented (`BossCorruption` enum, `HandRuleset`)
 
 Implement the four launch bosses as concrete `BossCorruption` conformers:
 
@@ -485,7 +658,26 @@ name + intro line before the hand starts, per the "telegraphed" design
 requirement — bosses must never surprise the player with an unstated rule
 change mid-hand.
 
-### 5.9 Corruption meter / System Purge — ⬜ planned, not implemented
+All four are implemented, matching the mapping above (the field is named
+`dealerHackAttemptMultiplier`, not `dealerChargeMultiplier` — the dealer
+never had a charge pool, only an attempt-probability roll, so "multiplier"
+means extra `DealerAI.maybeHack` attempts, not extra currency).
+**Which hand is the boss hand** wasn't fully specified by the original
+doc beyond "end of each Shift," so it's defined here as: whichever hand
+would clear the Shift if won (`streakWithinShift == targetStreak - 1`),
+computed at the top of every `startHand()`. Boss identity itself is
+`BossCorruption.forShift(index:)` — deterministic per Shift index
+(`allCases[(index-1) % 4]`), not per RNG seed, so the same Shift always
+presents the same boss even after a loss forces a retry — that's the
+"telegraphed, knowable" requirement satisfied structurally rather than by
+re-showing an intro each attempt. The intro *is* shown every time that
+hand comes up (logged at the top of `startHand()`, rendered as a banner
+in `TableView`), including on retries. No dedicated
+`BossCorruptionIntroView`/per-boss visual state exists — Blue Screen and
+Ghost Protocol currently render with the same generic banner as the other
+two (§0).
+
+### 5.9 Corruption meter / System Purge — ✅ implemented, as a hands-played meter (see deviation below)
 
 Per-Shift, not global: density resets at Shift start and climbs toward a
 max tied to the target streak. On hitting max, trigger a Purge: reshuffle
@@ -499,7 +691,22 @@ empties mid-hand (logged as "Shoe exhausted — fresh packets compiled
 mid-hand"). That's a capacity fallback, not the density-triggered System
 Purge described here — don't confuse the two when this section gets built.
 
-### 5.10 Scoring & meta-progression — ✅ implemented (`ScoringEngine.apply`), Daily Breach still planned
+Real deviation, not just an implementation detail: because every hand
+already rebuilds a fresh shoe from `ShiftConfig.corruptionDensity` (a
+simplification made back in §7 step 1, before this section existed),
+there's no persistent shoe for corruption density to literally
+accumulate *in* across hands. `RunState.handsPlayedThisShift` tracks
+hands played without clearing the Shift instead, as the practical
+stand-in for "things are getting out of hand," and Purge fires
+(`GameEngine.checkSystemPurge`, called from `settleHands()` whenever the
+Shift *didn't* clear) once that count reaches `targetStreak * 2`,
+resetting the meter and logging a Purge flavor line. Streak is untouched
+by a Purge, matching "not a fail state." If this guide's per-hand-fresh-
+shoe simplification ever gets revisited in favor of one continuous shoe
+per Shift, this section should be rebuilt around literal density
+accumulation instead.
+
+### 5.10 Scoring & meta-progression — ✅ implemented (`ScoringEngine.apply`), Daily Breach included
 
 - Clean win (no hacks used by player that hand): +2 streak, bonus shop
   currency.
@@ -512,45 +719,55 @@ Purge described here — don't confuse the two when this section gets built.
   given day's seed is fully reproducible for leaderboard integrity —
   no wall-clock or device-random inputs may leak into a Daily Breach run.
 
-Implemented: clean win +2/+2 currency, hack-assisted win +1/+1 (`+2/+3`
-and `+1/+1` respectively in the actual code — currency values were never
-pinned down by §8, so `+3`/`+1` were chosen as reasonable defaults),
-streak reset to 0 on a loss, and automatic Shift advancement (index +1,
-streak reset, charge pool `max` +1 and refilled) once
-`streakWithinShift >= targetStreak`. Not implemented: Purge-triggered
-resets (5.9 doesn't exist yet) and Daily Breach (seed currently comes
-from `GameEngine.init(seed:)`, not `RunState.seed` — see §0).
+Implemented: clean win +2 streak/+3 currency, hack-assisted win +1
+streak/+1 currency (currency values were never pinned down by §8, so
+these were chosen as reasonable defaults), streak reset to 0 on a loss,
+and automatic Shift advancement (index +1, streak reset, charge pool
+`max` +1 and refilled) once `streakWithinShift >= targetStreak`. Purge
+now exists (§5.9) and correctly leaves streak untouched. Daily Breach is
+implemented as `RunState.dailyBreach(dateKey:)`, deriving a seed via
+FNV-1a over a date string like `"2026-07-20"` — `GameEngine.init` now
+prefers `runState.seed` over its own `seed:` parameter when both are
+present, so constructing the engine from a Daily Breach `RunState` is
+sufficient; no separate API needed. Not implemented: any leaderboard or
+network layer to actually compare Daily Breach runs across players — the
+determinism is there, nothing consumes it yet.
 
 ---
 
-## 6. Rendering plan (SwiftUI) — ⬜ not started
+## 6. Rendering plan (SwiftUI) — 🟨 app exists and is playable; most individual effects below are simplified or missing
 
 Follow the tech proposal's stack choice: SwiftUI + Core Animation, no
 SpriteKit for v1.
 
-| Effect | Technique |
-|---|---|
-| Card flip (face-down → face-up) | `rotation3DEffect` on Y axis + `.easeInOut`, content swap at the midpoint |
-| Sparking shimmer | `withAnimation(.repeatForever())` driving small random offset jitter + glow/shadow color pulse |
-| Deal (shoe → hand slot) | `matchedGeometryEffect` between a shared namespace on the shoe view and the destination hand slot |
-| Corruption resolve reveal | Quick `.spring()` shake (offset) + brief color-flash overlay |
-| Hidden-hack tell | Low-opacity overlay view, animated independently of the card grid — build and validate this early since it carries gameplay information, not just polish |
-| Lateral infection thread | Animated `Path`/`Shape` with dash-phase animation between two tracked card frame origins (requires shared `PreferenceKey`-based frame tracking between hand views) |
+| Effect | Technique | Status |
+|---|---|---|
+| Card flip (face-down → face-up) | `rotation3DEffect` on Y axis + `.easeInOut`, content swap at the midpoint | 🟨 simplified — `CardView` crossfades front/back via `.transition(.scale.combined(with: .opacity))` instead of a true Y-axis flip. Safer to get right without a live preview loop; revisit with real device iteration. |
+| Sparking shimmer | `withAnimation(.repeatForever())` driving small random offset jitter + glow/shadow color pulse | ✅ implemented — tiny z-axis `rotation3DEffect` + `scaleEffect` jitter, `repeatForever(autoreverses: true)`, driven directly off `card.pendingMutations != nil`. |
+| Deal (shoe → hand slot) | `matchedGeometryEffect` between a shared namespace on the shoe view and the destination hand slot | ⬜ not implemented — there's no on-screen shoe view to animate from. Cards appear via SwiftUI's implicit list-diff insertion transition when appended to a hand's `cards` array instead. |
+| Corruption resolve reveal | Quick `.spring()` shake (offset) + brief color-flash overlay | ⬜ not implemented — a resolved spark is only visible via the card's rank changing and the shimmer stopping; no explicit shake/flash. |
+| Hidden-hack tell | Low-opacity overlay view, animated independently of the card grid — build and validate this early since it carries gameplay information, not just polish | ⬜ not implemented — the one item this table calls out as highest-risk-if-skipped is, in fact, the one that got skipped. A hidden hack is only visible via the log feed's text line right now (§5.2, §0). |
+| Lateral infection thread | Animated `Path`/`Shape` with dash-phase animation between two tracked card frame origins (requires shared `PreferenceKey`-based frame tracking between hand views) | ⬜ not implemented — the underlying engine mechanic (§5.5) works and is tested; only the visual is missing. |
 
 Build order for rendering, matching the tech proposal:
 
-1. Static card views + table/shop layout.
-2. Deal + flip.
-3. Spark/twitch shimmer — highest priority, since the tell system is
-   gameplay-critical, not decorative.
-4. Hack resolve feedback (shake + flash + sound hook).
-5. Split-hand infection thread.
-6. Boss one-off visual states (Blue Screen full-shoe spark, Ghost
+1. ✅ Static card views + table/shop layout.
+2. 🟨 Deal + flip — deal exists (list-diff transition, not
+   `matchedGeometryEffect`); flip exists as a crossfade, not a true 3D
+   rotation. See the table above.
+3. ✅ Spark/twitch shimmer — highest priority, since the tell system is
+   gameplay-critical, not decorative. This is the one row of the table
+   that landed as originally specified.
+4. ⬜ Hack resolve feedback (shake + flash + sound hook).
+5. ⬜ Split-hand infection thread.
+6. ⬜ Boss one-off visual states (Blue Screen full-shoe spark, Ghost
    Protocol's audio-only hidden hacks).
 
 Do a rough perf pass once 4-hand splits + visible shoe render
 simultaneously; not expected to need a redesign, but verify rather than
-assume.
+assume. (Not yet done — splits were only exercised through the CLI and
+via unit tests, never visually confirmed in the app with 3-4 live hands
+on screen at once.)
 
 ---
 
@@ -565,33 +782,46 @@ assume.
    step already includes hacks and dealer AI, i.e. steps 3 and 5 too.)*
 3. ✅ **Player hacks** — wire the five hack types through
    `applyHack(type:target:)`, charge pool deduction, Patch immunity flag.
-4. ⬜ **Static rendering** (tech proposal step 1) in parallel once the
+4. ✅ **Static rendering** (tech proposal step 1) in parallel once the
    engine has a stable `Hand`/`Card` shape to bind to.
 5. ✅ **Dealer AI** — visible-hack targeting first (early-shift behavior
    only), then hidden-hack targeting once the `.hidden` tell renders
    correctly (tech proposal step 3 must land before this is testable
    end-to-end, since hidden hacks are meaningless without their tell).
    *(Built without waiting on step 4's `.hidden` render — the CLI's
-   `[SPARK]`/log-line text stood in for it. Real rendering still needs
-   validating once step 4 exists, per the "muffled tell" requirement.)*
-6. ⬜ **Deal/flip/shimmer animations** (tech proposal steps 2-3).
-7. ⬜ **Splits** — shared charge pool, adjacency graph, lateral infection.
-8. ⬜ **Firmware** — keep/discard offer flow, 4-6 concrete effects.
-9. ⬜ **Patch Shop** — offer generation, currency, apply closures.
-10. ⬜ **Boss Corruptions** — all four, with intro screens.
-11. 🟨 **Scoring, Shift progression** done; **System Purge** not (§5.9/§5.10).
-12. ⬜ **Daily Breach mode** — seeded RNG, fixed economy, leaderboard hook
-    (leaderboard backend is out of scope for this guide — flag as a
-    follow-up spec if pursued).
+   `[SPARK]`/log-line text stood in for it, and the app still has no
+   dedicated `.hidden` visual either — see §0/§5.2/§6. The "meaningless
+   without their tell" risk this step called out is real and current.)*
+6. 🟨 **Deal/flip/shimmer animations** (tech proposal steps 2-3) — shimmer
+   landed as specified; deal and flip are both simplified substitutes
+   (§6).
+7. ✅ **Splits** — shared charge pool, adjacency graph, lateral infection.
+   Engine + tests only; never visually confirmed with multiple hands on
+   screen at once (see the perf-pass note in §6).
+8. ✅ **Firmware** — keep/discard offer flow, 4 concrete effects (doc
+   suggested 4-6).
+9. ✅ **Patch Shop** — offer generation, currency, apply logic (a
+   `switch`, not per-offer closures — see §5.7).
+10. ✅ **Boss Corruptions** — all four. Banner intro exists; no per-boss
+    visual states or a dedicated intro screen component (§5.8).
+11. ✅ **Scoring, Shift progression, System Purge** — all three now exist
+    (§5.9/§5.10; Purge as a hands-played meter, not literal density).
+12. ✅ **Daily Breach mode** — seeded RNG (`RunState.dailyBreach(dateKey:)`),
+    fixed economy (no reroll offer when `isDailyBreach`). No leaderboard
+    backend — still explicitly out of scope for this guide.
 13. ⬜ Sound pass — called out in the doc as load-bearing for Ghost Protocol
     and hidden hacks generally; don't treat as final-polish-only, budget
-    real time for it before those features are considered done.
+    real time for it before those features are considered done. **Still
+    the single biggest gap**: Ghost Protocol's entire premise (no visual
+    tell, audio only) currently has no tell at all in the app beyond a
+    log line, because neither the hidden-hack visual (step 6/§6) nor any
+    sound exists.
 
-Each numbered step should be playable/testable before moving to the next;
-don't build splits on top of an engine that hasn't proven single-hand
-hacking works correctly first. Next up per this order: step 4 (static
-SwiftUI rendering) — steps 1, 2, 3, and 5 are done and step 6 can't
-usefully start without it.
+Every step above is at least functionally done except sound (13). What's
+left is exclusively about §6's rendering fidelity — see §0's "known
+simplifications" list for the specific, real gaps (hidden-hack tell and
+sound are the two that actually change what the game communicates, not
+just how it looks).
 
 ---
 
@@ -602,20 +832,33 @@ implementation isn't blocked; revisit after playtesting rather than
 before building:
 
 - **Firmware slot curve**: start 3, +1 available roughly every 2 Shifts
-  via shop, cap at 6.
+  via shop, cap at 6. ✅ **Implemented**, cap is 7 not 6 (top of the
+  documented "~6-7" range) — `generateShopOffers()` stops offering
+  `extraFirmwareSlot` once `runState.firmware.capacity >= 7`.
 - **Dealer hidden-hack scaling**: hard cap of 1 hidden-hack attempt per
   hand until Shift 7+, even if the probability roll would allow more.
-  Prevents feeling unfair despite the tell system. **Not yet implemented**
-  in `DealerAI.maybeHack` — see §5.4/§0 for the gap.
+  Prevents feeling unfair despite the tell system. **Still not
+  implemented** in `DealerAI.maybeHack` — see §5.4/§0 for the gap. Root
+  Access's `attempts: 2` makes this more likely to matter, not less.
 - **Shop currency economy**: clean win banks more than a standard win
   clears in one shop visit; Shift-clear bonus should be large enough to
   guarantee at least one shop purchase per Shift, small enough that
-  buying out the whole offer list isn't typical.
+  buying out the whole offer list isn't typical. ✅ **Implemented** as
+  +2 streak/+3 currency (clean) vs. +1/+1 (hack-assisted) — not
+  separately playtested for balance, just a reasonable starting split.
 - **Split lateral-infection visual**: build the thread (§6) rather than
   relying on shimmer alone — the doc flags 4-hand tables as crowded
-  enough that an unconnected shimmer won't read clearly.
+  enough that an unconnected shimmer won't read clearly. **Still not
+  implemented** — the engine mechanic exists and is tested (§5.5); only
+  the dedicated visual is missing, and infection currently reads only as
+  a log line plus the newly-sparked card's ordinary shimmer, which is
+  exactly the "won't read clearly on a crowded table" failure mode this
+  bullet warned about.
 - **Sound identity**: needs its own pass before Ghost Protocol or general
   hidden-hack behavior is considered feature-complete, per §7 step 13.
+  **Still not implemented** — no audio exists anywhere in the app yet.
+  This is the most consequential remaining gap: Ghost Protocol's entire
+  design premise depends on it.
 
 ---
 
@@ -651,11 +894,11 @@ touched.
 **Leech resolve** (`FlavorText.leechResolve(card:integrity:using:)`, new — not in the original doc):
 - Leech was the one mutation with no visible effect (integrity isn't rendered), so a resolved Leech spark looked identical to nothing happening. Added a dedicated line reporting the drain: "Leech bites into {card} — integrity down to {n}. Something on the table just got hungrier." / "Leech drains {card} — integrity at {n} and falling." / "Leech siphons {card} dry — integrity {n}. It'll spread if you let it sit."
 
-**System Purge** (not wired up — §5.9 doesn't exist yet):
+**System Purge** (`FlavorText.systemPurge(using:)` — wired up, fires from `GameEngine.checkSystemPurge` per §5.9):
 - "INTEGRITY FAILURE. Flushing shoe. Try not to look so relieved."
 - "The table remembers nothing. Neither should you."
 
-**Boss Corruption intros** (not wired up — §5.8 doesn't exist yet):
+**Boss Corruption intros** (wired up, but *not* through `FlavorText` — they live as `BossCorruption.introLine` in `BossCorruption.swift` instead, since each boss already needed a computed `name`/`introLine` pair and duplicating that through a second lookup didn't add anything. Worth noting as the one exception to this section's "all copy in one place" principle):
 - Firewall Down: "No patches today. Whatever sparks, you're wearing it."
 - Root Access: "Everybody's got admin now. Try not to break the table."
 - Blue Screen: "Every card's compromised. This was always going to happen eventually."
@@ -669,7 +912,7 @@ touched.
 - Player win: "You win the hand." / "Clean enough. The house logs it and moves on." / "Hand's yours. The dealer doesn't blink."
 - Dealer win: "The house wins the hand." / "Table holds. It usually does." / "Dealer takes it. No fanfare — the house doesn't need any."
 - Push: "Push — nobody's integrity changes." / "Dead heat. Neither side's firmware budges." / "Push. The table stays exactly as compromised as before."
-- The doc's original "Firmware-assisted win" line ("21. Your deck's haunted and it's working for you now.") isn't used — there's no Firmware system yet to distinguish a Firmware-assisted win from a plain one.
+- The doc's original "Firmware-assisted win" line ("21. Your deck's haunted and it's working for you now.") still isn't used, even though Firmware now exists — `HandOutcome` has no "was a kept Firmware effect involved in this win" case to key off of, so there's currently no trigger point that would call it correctly.
 
 ---
 
@@ -689,25 +932,44 @@ touched.
   the app and exercise the feature before calling it done — type-checking
   a shimmer animation doesn't confirm it reads as "sparking" at a glance.
 
-**Current state:** 15 tests, all passing, run with `swift test` (no
-simulator needed — confirms the UI-independence requirement above holds).
+**Current state:** 31 tests, all passing, run with `swift test` (no
+simulator needed — confirms the UI-independence requirement above holds;
+`Sources/HackjackApp` isn't declared as a Package.swift target, so it
+plays no part in this test run at all).
 
 - `CorruptionGeneratorTests` (5): same-seed shoe determinism,
   different-seed divergence, shop-removed-type exclusion, the
   pending-pair-visible-until-`resolve()` invariant, Twinner's
   duplicate-another-card behavior.
-- `GameEngineTests` (7): deal shape, hit-until-turn-ends, stand doesn't
+- `GameEngineTests` (8): deal shape, hit-until-turn-ends, stand doesn't
   draw, **the mutation-pair-shown-before-a-committing-action ordering**
   (via the public API, searching seeds 0..<300 for one that deals a
   starting spark — this is the test called out above as easy to
   silently regress), insufficient-charges error, Crash replacing the
-  target card, Patch clearing spark/restoring integrity.
-- `DealerAITests` (3): hidden hacks locked out before Shift 4 (500 seeded
-  trials), reachable after Shift 4 (500 seeded trials), visible hacks
-  land on the player's hand.
+  target card (plus a dedicated regression test that Crash actually
+  leaves a fresh `pendingMutations` pair, catching the latent bug fixed
+  in §0), Patch clearing spark/restoring integrity.
+- `DealerAITests` (5): hidden hacks locked out before Shift 4 (500 seeded
+  trials), reachable after Shift 4 (500 seeded trials), `forceHidden`
+  always wins even when otherwise locked out (Ghost Protocol), `attempts:
+  2` can land two hacks (Root Access), visible hacks land on the
+  player's hand.
+- `AdvancedSystemsTests` (13): split creates two hands sharing one charge
+  pool, split respects the 4-hand cap, active hand advances after a split
+  hand resolves, a favorable sparked win offers Firmware, keeping an
+  offer adds it to `RunState`, clearing a Shift generates shop offers,
+  purchasing extends the charge pool and spends currency, each of the
+  four bosses' `HandRuleset` effects (Firewall Down blocks Patch, Root
+  Access grants +2 charges), boss-per-Shift determinism across all four
+  cases plus the wraparound at Shift 5, System Purge resets its meter
+  past the threshold, and Daily Breach same-date/different-date
+  determinism.
 
 **Gaps versus the original plan, not yet closed:** no `ScoringEngineTests`
-file (Shift advancement is only exercised indirectly, via a scripted CLI
-playthrough — see the commit history); split charge-pool sharing and
-Boss Corruption `HandRuleset` overrides can't be tested yet since neither
-system exists (§5.5, §5.8). Add both when those land.
+file specifically — Shift/streak/currency math is exercised indirectly
+through `AdvancedSystemsTests`' shop and boss tests rather than in
+isolation. No tests at all for the SwiftUI layer (`GameViewModel`,
+`CardView`, etc.) — see §0 for why interactive verification wasn't
+possible in this environment; if a way to drive the Simulator becomes
+available, `GameViewModel` is unit-testable on its own (it's a thin,
+synchronous wrapper) without needing UI automation at all.
