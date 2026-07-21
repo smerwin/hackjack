@@ -50,12 +50,14 @@ public enum CorruptionGenerator {
     /// ever called by GameEngine at the moment a hand "commits" to the card
     /// (§5.1) — never eagerly at generation time, or the tell system's
     /// legible-risk premise (see two mutations shown, one applied) breaks.
-    public static func resolve<G: RandomNumberGenerator>(_ card: inout Card, otherRanksInHand: [Rank], using rng: inout G) {
-        guard let pair = card.pendingMutations else { return }
+    @discardableResult
+    public static func resolve<G: RandomNumberGenerator>(_ card: inout Card, otherRanksInHand: [Rank], using rng: inout G) -> MutationType? {
+        guard let pair = card.pendingMutations else { return nil }
         let chosen = Bool.random(using: &rng) ? pair.0 : pair.1
         apply(chosen, to: &card, otherRanksInHand: otherRanksInHand, using: &rng)
         card.pendingMutations = nil
         card.sparkTell = nil
+        return chosen
     }
 
     private static func apply<G: RandomNumberGenerator>(

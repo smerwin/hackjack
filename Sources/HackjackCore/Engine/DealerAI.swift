@@ -29,7 +29,7 @@ public enum DealerAI {
     ) {
         let idx = Int.random(in: 0..<hand.cards.count, using: &rng)
         applyDealerHack(to: &hand.cards[idx], removedTypes: removedTypes, tell: .visible, using: &rng)
-        log.append("Found a way in. Rude of you to leave it open. (\(hand.cards[idx]))")
+        log.append("\(FlavorText.dealerHackVisible(using: &rng)) (\(hand.cards[idx]))")
     }
 
     /// Targets the next card due to be drawn — the shoe-resident analog of
@@ -42,7 +42,7 @@ public enum DealerAI {
         using rng: inout G
     ) {
         applyDealerHack(to: &shoe[0], removedTypes: removedTypes, tell: .hidden, using: &rng)
-        log.append("A faint hum crawls at the edge of the screen. Something in the shoe just changed.")
+        log.append(FlavorText.dealerHackHidden(using: &rng))
     }
 
     private static func applyDealerHack<G: RandomNumberGenerator>(

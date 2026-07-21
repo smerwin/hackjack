@@ -22,18 +22,6 @@ func printLog(_ engine: GameEngine) {
     }
 }
 
-func outcomeLine(_ outcome: HandOutcome) -> String {
-    switch outcome {
-    case .playerBlackjack: return "21, unassisted. The old-fashioned kind of cheating: skill."
-    case .dealerBlackjack: return "House hits 21 first. Root always wins ties it deals itself."
-    case .playerBust: return "Overflow error. You know what that means here."
-    case .dealerBust: return "The house overflowed. Doesn't happen twice, usually."
-    case .playerWin: return "You win the hand."
-    case .dealerWin: return "The house wins the hand."
-    case .push: return "Push — nobody's integrity changes."
-    }
-}
-
 func promptLine(_ text: String) -> String {
     print(text, terminator: "")
     return readLine()?.trimmingCharacters(in: .whitespaces).lowercased() ?? "s"
@@ -49,8 +37,12 @@ func promptTarget(engine: GameEngine) -> (targetIsDealer: Bool, cardID: UUID)? {
     return (false, engine.playerHand.cards[index].id)
 }
 
-print("Compiling shoe... 52 packets found. Integrity: unverified.")
-print("The house doesn't cheat. The house just has root access.\n")
+var uiRNG = SystemRandomNumberGenerator()
+
+for line in FlavorText.loadingScreen.shuffled(using: &uiRNG).prefix(2) {
+    print(line)
+}
+print("")
 
 let engine = GameEngine(runState: RunState())
 
@@ -99,7 +91,7 @@ runLoop: while true {
     printLog(engine)
 
     let outcome = engine.settleHand()
-    print("\n\(outcomeLine(outcome))")
+    print("\n\(FlavorText.outcome(outcome, using: &uiRNG))")
     print("Streak: \(engine.runState.streakWithinShift)/\(engine.shiftConfig.targetStreak)   Currency: \(engine.runState.shopCurrency)   Charges: \(engine.runState.chargePool.current)/\(engine.runState.chargePool.max)")
 }
 

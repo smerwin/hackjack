@@ -14,7 +14,7 @@ public final class GameEngine {
     private var hacksUsedThisHand = false
     private var rng: SeededGenerator
 
-    public enum HackError: Error, Sendable {
+    public enum HackError: Error, Equatable, Sendable {
         case insufficientCharges
         case invalidTarget
     }
@@ -72,8 +72,12 @@ public final class GameEngine {
         for i in hand.cards.indices where hand.cards[i].pendingMutations != nil {
             let before = "\(hand.cards[i])"
             let otherRanks = hand.cards.indices.filter { $0 != i }.map { hand.cards[$0].rank }
-            CorruptionGenerator.resolve(&hand.cards[i], otherRanksInHand: otherRanks, using: &rng)
-            log.append("Spark resolved: \(before) -> \(hand.cards[i]).")
+            let mutation = CorruptionGenerator.resolve(&hand.cards[i], otherRanksInHand: otherRanks, using: &rng)
+            if mutation == .leech {
+                log.append(FlavorText.leechResolve(card: before, integrity: hand.cards[i].integrity, using: &rng))
+            } else {
+                log.append("Spark resolved: \(before) -> \(hand.cards[i]).")
+            }
         }
     }
 
@@ -110,10 +114,11 @@ public final class GameEngine {
 
         if type == .peek {
             runState.chargePool.spend(cost)
+            let confirm = FlavorText.hackConfirm(.peek, using: &rng)
             if let hole = dealerHand.cards.dropFirst().first {
-                log.append("Peek: dealer hole card is \(hole).")
+                log.append("\(confirm) Hole card: \(hole).")
             } else {
-                log.append("Peek: no hole card to read.")
+                log.append("\(confirm) No hole card to read.")
             }
             hacksUsedThisHand = true
             return
@@ -146,7 +151,7 @@ public final class GameEngine {
             break // handled above; unreachable here
         }
 
-        log.append("You \(type.rawValue)ed \(hand.cards[idx]).")
+        log.append("\(FlavorText.hackConfirm(type, using: &rng)) (\(hand.cards[idx]))")
         if targetIsDealer { dealerHand = hand } else { playerHand = hand }
         hacksUsedThisHand = true
     }
