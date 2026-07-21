@@ -50,11 +50,25 @@ public enum CorruptionGenerator {
     /// ever called by GameEngine at the moment a hand "commits" to the card
     /// (§5.1) — never eagerly at generation time, or the tell system's
     /// legible-risk premise (see two mutations shown, one applied) breaks.
+    /// `preferredMutation` and `integrityFloor` exist only for Firmware
+    /// (§5.6, `twinnerLoop`/`leechWard`) — both default to "no effect" so
+    /// every other caller sees the original 50/50, unfloored behavior.
     @discardableResult
-    public static func resolve<G: RandomNumberGenerator>(_ card: inout Card, otherRanksInHand: [Rank], using rng: inout G) -> MutationType? {
+    public static func resolve<G: RandomNumberGenerator>(
+        _ card: inout Card,
+        otherRanksInHand: [Rank],
+        preferredMutation: MutationType? = nil,
+        integrityFloor: Int = 0,
+        using rng: inout G
+    ) -> MutationType? {
         guard let pair = card.pendingMutations else { return nil }
-        let chosen = Bool.random(using: &rng) ? pair.0 : pair.1
-        apply(chosen, to: &card, otherRanksInHand: otherRanksInHand, using: &rng)
+        let chosen: MutationType
+        if let preferredMutation, preferredMutation == pair.0 || preferredMutation == pair.1 {
+            chosen = preferredMutation
+        } else {
+            chosen = Bool.random(using: &rng) ? pair.0 : pair.1
+        }
+        apply(chosen, to: &card, otherRanksInHand: otherRanksInHand, integrityFloor: integrityFloor, using: &rng)
         card.pendingMutations = nil
         card.sparkTell = nil
         return chosen
@@ -64,6 +78,7 @@ public enum CorruptionGenerator {
         _ mutation: MutationType,
         to card: inout Card,
         otherRanksInHand: [Rank],
+        integrityFloor: Int,
         using rng: inout G
     ) {
         switch mutation {
@@ -72,9 +87,11 @@ public enum CorruptionGenerator {
         case .overload:
             card.rank = [.jack, .queen, .king, .ace].randomElement(using: &rng)!
         case .leech:
-            // No adjacent-hand target exists until splits ship (§5.5); until
-            // then it drains the card's own integrity further as a stand-in.
-            card.integrity = max(0, card.integrity - 20)
+            // Draining an adjacent split hand's card is GameEngine's job
+            // (it's the only thing that can see other live hands) — see
+            // GameEngine.applyLateralInfection. This still drains the
+            // card's own integrity as the direct, always-happens effect.
+            card.integrity = max(integrityFloor, card.integrity - 20)
         case .twinner:
             if let target = otherRanksInHand.randomElement(using: &rng) {
                 card.rank = target

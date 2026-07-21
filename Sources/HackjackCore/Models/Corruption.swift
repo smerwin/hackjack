@@ -2,12 +2,12 @@
 /// anything already on the table; `.hidden` for a dealer hack landing on a
 /// card still in the shoe or face-down. Rendering must read this field
 /// directly rather than re-deriving "is this hacked" from other state.
-public enum SparkTell: Sendable {
+public enum SparkTell: Equatable, Sendable {
     case visible
     case hidden
 }
 
-public enum MutationType: CaseIterable, Sendable {
+public enum MutationType: CaseIterable, Equatable, Sendable {
     case volatileValue
     case overload
     case leech

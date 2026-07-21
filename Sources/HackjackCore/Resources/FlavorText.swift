@@ -66,6 +66,14 @@ public enum FlavorText {
         return pool.randomElement(using: &rng)!
     }
 
+    public static func systemPurge<G: RandomNumberGenerator>(using rng: inout G) -> String {
+        let pool = [
+            "INTEGRITY FAILURE. Flushing shoe. Try not to look so relieved.",
+            "The table remembers nothing. Neither should you.",
+        ]
+        return pool.randomElement(using: &rng)!
+    }
+
     /// Leech drains integrity with no rank change, so it was the one
     /// mutation with zero visible output. Reports the drain directly
     /// instead of leaving the player staring at an unchanged card.
