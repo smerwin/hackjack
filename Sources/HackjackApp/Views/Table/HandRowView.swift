@@ -14,20 +14,20 @@ struct HandRowView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(label)
-                    .font(.caption.bold())
+                    .font(.caption.weight(.heavy))
                     .foregroundStyle(Term.dimGreen)
                 if hand.isBusted {
                     Label("BUSTED", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption2.bold())
+                        .font(.caption2.weight(.heavy))
                         .foregroundStyle(Term.alertRed)
                 } else if hand.isBlackjack {
                     Label("21!", systemImage: "bolt.fill")
-                        .font(.caption2.bold())
+                        .font(.caption2.weight(.heavy))
                         .foregroundStyle(.yellow)
                 }
                 Spacer()
                 Text(isDealer && hideHoleCard ? "?" : "\(hand.bestValue)")
-                    .font(.subheadline.monospacedDigit().bold())
+                    .font(.subheadline.monospacedDigit().weight(.heavy))
                     .foregroundStyle(Term.green)
             }
             HStack(spacing: 6) {
@@ -47,7 +47,7 @@ struct HandRowView: View {
         }
         .padding(8)
         .background(Color.black.opacity(0.4))
-        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(isActive ? Term.green : Term.dimGreen.opacity(0.3), lineWidth: isActive ? 2 : 1))
+        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(isActive ? Term.green : Term.dimGreen.opacity(0.35), lineWidth: isActive ? Term.lineThick : Term.lineRegular))
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: hand.cards.count)
     }
 }

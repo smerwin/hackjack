@@ -95,7 +95,11 @@ struct TableView: View {
     }
 
     private var background: some View {
-        Term.background.ignoresSafeArea()
+        ZStack {
+            Term.background
+            MatrixRainView()
+        }
+        .ignoresSafeArea()
     }
 
     private var header: some View {
@@ -129,7 +133,7 @@ struct TableView: View {
 
     private func bracketStat(_ label: String, _ value: String) -> some View {
         Text("[\(label) \(value)]")
-            .font(.system(.caption2, design: .monospaced, weight: .semibold))
+            .font(.system(.caption2, design: .monospaced, weight: .bold))
             .foregroundStyle(Term.green)
     }
 
@@ -144,16 +148,16 @@ struct TableView: View {
     private func bossBanner(_ boss: BossCorruption) -> some View {
         VStack(spacing: 2) {
             Text("!! SECURITY ALERT — \(boss.name) !!")
-                .font(.caption.bold())
+                .font(.caption.weight(.heavy))
             Text(boss.introLine)
-                .font(.caption2)
+                .font(.caption2.weight(.semibold))
                 .multilineTextAlignment(.center)
         }
         .foregroundStyle(Term.alertRed)
         .padding(8)
         .frame(maxWidth: .infinity)
         .background(Color.black)
-        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(Term.alertRed, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(Term.alertRed, lineWidth: Term.lineThick))
         .padding(.horizontal)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
@@ -176,7 +180,7 @@ struct TableView: View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(viewModel.log.suffix(6).enumerated()), id: \.offset) { _, line in
                 Text("$ \(line)")
-                    .font(.caption2)
+                    .font(.caption2.weight(.medium))
                     .foregroundStyle(Term.dimGreen)
             }
         }
@@ -222,11 +226,11 @@ struct TableView: View {
                 Image(systemName: "chevron.down.circle")
                 Text(viewModel.armedHack.map { "[ \($0.displayName) ARMED ▾ ]" } ?? "[ HACK TOOLS ▾ ]")
             }
-            .font(.system(.subheadline, design: .monospaced, weight: .bold))
+            .font(.system(.subheadline, design: .monospaced, weight: .heavy))
             .foregroundStyle(viewModel.armedHack == nil ? Term.green : .yellow)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
-            .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(viewModel.armedHack == nil ? Term.green : .yellow, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(viewModel.armedHack == nil ? Term.green : .yellow, lineWidth: Term.lineRegular))
         }
         .padding(.horizontal)
         .padding(.bottom, 8)
@@ -238,21 +242,21 @@ struct TableView: View {
                 .foregroundStyle(.yellow)
             VStack(alignment: .leading, spacing: 1) {
                 Text(type.needsTarget ? "\(type.displayName) armed — tap a card to target it" : "\(type.displayName)")
-                    .font(.caption.bold())
+                    .font(.caption.weight(.heavy))
                 Text(type.fullDescription)
-                    .font(.caption2)
+                    .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             if type.needsTarget {
                 Button("cancel") { withAnimation { viewModel.armedHack = nil } }
-                    .font(.caption2)
+                    .font(.caption2.weight(.bold))
             }
         }
         .foregroundStyle(.white)
         .padding(10)
         .background(Color.black)
-        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(Color.yellow.opacity(0.6), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(Color.yellow.opacity(0.6), lineWidth: Term.lineRegular))
         .padding(.horizontal)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }

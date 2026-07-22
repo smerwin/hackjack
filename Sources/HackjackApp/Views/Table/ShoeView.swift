@@ -16,18 +16,18 @@ struct ShoeView: View {
         ZStack {
             if stackCount == 0 {
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(Term.dimGreen, style: StrokeStyle(lineWidth: 1, dash: [4]))
+                    .stroke(Term.dimGreen, style: StrokeStyle(lineWidth: Term.lineRegular, dash: [4]))
                     .frame(width: 46, height: 64)
             } else {
                 ForEach(0..<stackCount, id: \.self) { i in
                     RoundedRectangle(cornerRadius: 8)
                         .fill(LinearGradient(colors: [Color(red: 0.03, green: 0.15, blue: 0.07), Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
                         .frame(width: 46, height: 64)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Term.green.opacity(0.35), lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Term.green.opacity(0.45), lineWidth: Term.lineRegular))
                         .offset(x: CGFloat(i) * 2, y: -CGFloat(i) * 2)
                 }
                 Text(">_")
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .font(.system(size: 12, weight: .heavy, design: .monospaced))
                     .foregroundStyle(Term.green.opacity(0.5))
                     .offset(x: CGFloat(stackCount - 1) * 2, y: -CGFloat(stackCount - 1) * 2)
             }
@@ -35,7 +35,7 @@ struct ShoeView: View {
         .frame(width: 54, height: 72)
         .overlay(alignment: .bottom) {
             Text("[\(remaining) LEFT]")
-                .font(.system(.caption2, design: .monospaced))
+                .font(.system(.caption2, design: .monospaced, weight: .bold))
                 .foregroundStyle(Term.dimGreen)
                 .fixedSize()
                 .offset(y: 14)

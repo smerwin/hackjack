@@ -13,6 +13,14 @@ enum Term {
     static let corruptionPurple = Color(red: 0.72, green: 0.4, blue: 1.0)
 
     static let cornerRadius: CGFloat = 3
+
+    /// Named line weights so "thicker lines" stays a deliberate, consistent
+    /// scale instead of scattered magic numbers. `regular` replaces what
+    /// used to be a flat `1` everywhere.
+    static let lineThin: CGFloat = 1.5
+    static let lineRegular: CGFloat = 2
+    static let lineThick: CGFloat = 3
+    static let lineEmphasis: CGFloat = 4
 }
 
 struct TerminalBracketButtonStyle: ButtonStyle {
@@ -21,7 +29,7 @@ struct TerminalBracketButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(.subheadline, design: .monospaced, weight: .bold))
+            .font(.system(.subheadline, design: .monospaced, weight: .heavy))
             .foregroundStyle(filled ? Color.black : tint)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
@@ -31,7 +39,7 @@ struct TerminalBracketButtonStyle: ButtonStyle {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Term.cornerRadius)
-                    .stroke(tint, lineWidth: 1)
+                    .stroke(tint, lineWidth: Term.lineRegular)
             )
             .opacity(configuration.isPressed ? 0.6 : 1)
     }
@@ -41,6 +49,6 @@ extension View {
     func terminalPanel(tint: Color = Term.dimGreen) -> some View {
         self
             .background(Color.black.opacity(0.4))
-            .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(tint, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(tint, lineWidth: Term.lineRegular))
     }
 }

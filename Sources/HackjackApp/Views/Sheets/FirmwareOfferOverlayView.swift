@@ -9,15 +9,15 @@ struct FirmwareOfferOverlayView: View {
     var body: some View {
         VStack(spacing: 16) {
             Text("[ FIRMWARE OFFER ]")
-                .font(.caption.bold())
+                .font(.caption.weight(.heavy))
                 .foregroundStyle(Term.corruptionPurple)
             Text(offer.effect.displayName)
-                .font(.title2.bold())
+                .font(.title2.weight(.heavy))
                 .foregroundStyle(Term.green)
             Text(offer.effect.flavorDescription)
-                .font(.body)
+                .font(.body.weight(.medium))
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.white.opacity(0.8))
+                .foregroundStyle(.white.opacity(0.85))
             HStack(spacing: 12) {
                 Button("[ DECLINE ]", action: onDecline)
                     .buttonStyle(TerminalBracketButtonStyle(tint: Term.dimGreen))
@@ -28,7 +28,7 @@ struct FirmwareOfferOverlayView: View {
         .padding(24)
         .frame(maxWidth: 340)
         .background(Color.black)
-        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(Term.corruptionPurple, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(Term.corruptionPurple, lineWidth: Term.lineThick))
         .shadow(color: Term.corruptionPurple.opacity(0.4), radius: 20)
         .transition(.scale.combined(with: .opacity))
     }
