@@ -74,6 +74,27 @@ xcrun simctl launch booted com.hackjack.app
   bust/blackjack badges, a hack tray that arms a hack type and commits it
   on the next card tap, a boss banner, and Firmware/Shop overlays driven
   directly by `pendingFirmwareOffer`/`pendingShopOffers`.
+- **Visual identity: a 90s script-kiddie terminal** (`Theme.swift`) —
+  green-on-black, monospaced everywhere via `.fontDesign(.monospaced)`,
+  bracket-tagged status readouts (`[SHIFT 1] [STREAK 0/4]`), card backs
+  and the shoe stamped with a `>_` glyph. Not specified anywhere in the
+  original v0.2 doc, which never picked a concrete visual style — this
+  is the house style now; keep new UI consistent with it (`Term.*`
+  colors, `TerminalBracketButtonStyle`) rather than reintroducing
+  default SwiftUI chrome. Corruption stays purple
+  (`Term.corruptionPurple`) deliberately, so a spark still reads as an
+  anomaly breaking through the green system rather than blending into
+  the theme.
+- **Hack tools are a dropdown (`Menu`), not five individual buttons.**
+  Early playtesting of the button-tray version surfaced a real problem:
+  `J`/`S`/`C`/`P`/`◎` explained nothing, even to someone who knew the
+  design doc. `HackInfo.swift` (App layer, not `HackjackCore` — this is
+  presentation metadata, not engine state) gives every `PlayerHackType`
+  a full display name, SF Symbol, one-line menu subtitle, and a longer
+  description shown in a hint banner once armed ("JACK armed — tap a
+  card to target it"). Worth keeping this principle for any future
+  control: a button's label must be enough to guess what it does without
+  already knowing the ruleset.
 - Verified in the iOS Simulator (booted "iPhone 17", Xcode 26.3):
   `xcodebuild` succeeds, the `.app` installs and launches via `simctl`,
   and a screenshot confirms it renders real dealt cards and correct
