@@ -16,27 +16,27 @@ struct ShoeView: View {
         ZStack {
             if stackCount == 0 {
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [4]))
+                    .stroke(Term.dimGreen, style: StrokeStyle(lineWidth: 1, dash: [4]))
                     .frame(width: 46, height: 64)
             } else {
                 ForEach(0..<stackCount, id: \.self) { i in
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(LinearGradient(colors: [Color.indigo, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .fill(LinearGradient(colors: [Color(red: 0.03, green: 0.15, blue: 0.07), Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
                         .frame(width: 46, height: 64)
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Term.green.opacity(0.35), lineWidth: 1))
                         .offset(x: CGFloat(i) * 2, y: -CGFloat(i) * 2)
                 }
-                Image(systemName: "bolt.horizontal.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.4))
+                Text(">_")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Term.green.opacity(0.5))
                     .offset(x: CGFloat(stackCount - 1) * 2, y: -CGFloat(stackCount - 1) * 2)
             }
         }
         .frame(width: 54, height: 72)
         .overlay(alignment: .bottom) {
-            Text("\(remaining) left")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.55))
+            Text("[\(remaining) LEFT]")
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(Term.dimGreen)
                 .fixedSize()
                 .offset(y: 14)
         }

@@ -9,11 +9,12 @@ struct ShopOverlayView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Text("PATCH SHOP")
+            Text("[ PATCH SHOP ]")
                 .font(.headline.bold())
-            Text("Currency: \(currency)")
+                .foregroundStyle(Term.green)
+            Text("[CREDITS \(currency)]")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Term.dimGreen)
             VStack(spacing: 10) {
                 ForEach(offers) { offer in
                     Button {
@@ -27,22 +28,26 @@ struct ShopOverlayView: View {
                             Spacer()
                             Text("\(offer.cost)")
                                 .font(.subheadline.bold().monospacedDigit())
-                                .foregroundStyle(currency >= offer.cost ? Color.green : Color.red)
+                                .foregroundStyle(currency >= offer.cost ? Term.green : Term.alertRed)
                         }
                         .padding(10)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+                        .background(Color.black.opacity(0.4))
+                        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(Term.dimGreen.opacity(0.4), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
+                    .foregroundStyle(.white)
                     .disabled(currency < offer.cost)
+                    .opacity(currency < offer.cost ? 0.5 : 1)
                 }
             }
-            Button("Done", action: onClose)
-                .buttonStyle(.borderedProminent)
+            Button("[ DONE ]", action: onClose)
+                .buttonStyle(TerminalBracketButtonStyle(tint: Term.green, filled: true))
         }
         .padding(20)
         .frame(maxWidth: 360)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-        .shadow(radius: 20)
+        .background(Color.black)
+        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(Term.green, lineWidth: 1))
+        .shadow(color: Term.green.opacity(0.3), radius: 20)
         .transition(.scale.combined(with: .opacity))
     }
 }

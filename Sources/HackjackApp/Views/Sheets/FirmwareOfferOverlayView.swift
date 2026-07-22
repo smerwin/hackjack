@@ -8,27 +8,28 @@ struct FirmwareOfferOverlayView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("FIRMWARE OFFER")
+            Text("[ FIRMWARE OFFER ]")
                 .font(.caption.bold())
-                .foregroundStyle(.purple)
+                .foregroundStyle(Term.corruptionPurple)
             Text(offer.effect.displayName)
                 .font(.title2.bold())
+                .foregroundStyle(Term.green)
             Text(offer.effect.flavorDescription)
                 .font(.body)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.8))
             HStack(spacing: 12) {
-                Button("Decline", role: .cancel, action: onDecline)
-                    .buttonStyle(.bordered)
-                Button("Keep", action: onKeep)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.purple)
+                Button("[ DECLINE ]", action: onDecline)
+                    .buttonStyle(TerminalBracketButtonStyle(tint: Term.dimGreen))
+                Button("[ KEEP ]", action: onKeep)
+                    .buttonStyle(TerminalBracketButtonStyle(tint: Term.corruptionPurple, filled: true))
             }
         }
         .padding(24)
         .frame(maxWidth: 340)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-        .shadow(radius: 20)
+        .background(Color.black)
+        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(Term.corruptionPurple, lineWidth: 1))
+        .shadow(color: Term.corruptionPurple.opacity(0.4), radius: 20)
         .transition(.scale.combined(with: .opacity))
     }
 }

@@ -15,11 +15,11 @@ struct HandRowView: View {
             HStack {
                 Text(label)
                     .font(.caption.bold())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Term.dimGreen)
                 if hand.isBusted {
-                    Label("Busted", systemImage: "exclamationmark.triangle.fill")
+                    Label("BUSTED", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption2.bold())
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Term.alertRed)
                 } else if hand.isBlackjack {
                     Label("21!", systemImage: "bolt.fill")
                         .font(.caption2.bold())
@@ -28,7 +28,7 @@ struct HandRowView: View {
                 Spacer()
                 Text(isDealer && hideHoleCard ? "?" : "\(hand.bestValue)")
                     .font(.subheadline.monospacedDigit().bold())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Term.green)
             }
             HStack(spacing: 6) {
                 ForEach(Array(hand.cards.enumerated()), id: \.element.id) { index, card in
@@ -46,8 +46,8 @@ struct HandRowView: View {
             }
         }
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 12).fill(isActive ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.04)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(isActive ? Color.accentColor : Color.clear, lineWidth: 2))
+        .background(Color.black.opacity(0.4))
+        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(isActive ? Term.green : Term.dimGreen.opacity(0.3), lineWidth: isActive ? 2 : 1))
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: hand.cards.count)
     }
 }

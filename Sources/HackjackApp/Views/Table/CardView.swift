@@ -47,11 +47,11 @@ struct CardView: View {
             .fill(Color(white: 1.0))
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(isSparking ? Color.purple : Color.black.opacity(0.2), lineWidth: isSparking ? 2.5 : 1)
+                    .strokeBorder(isSparking ? Term.corruptionPurple : Term.green.opacity(0.4), lineWidth: isSparking ? 2.5 : 1)
             )
             .overlay {
                 VStack(spacing: 2) {
-                    Text(card.rank.symbol).font(.system(size: 20, weight: .bold, design: .rounded))
+                    Text(card.rank.symbol).font(.system(size: 20, weight: .bold, design: .monospaced))
                     Text(card.suit.symbol).font(.system(size: 15))
                 }
                 .foregroundStyle(isRed ? Color.red : Color.black)
@@ -61,16 +61,18 @@ struct CardView: View {
                     RoundedRectangle(cornerRadius: 10).strokeBorder(Color.yellow, lineWidth: 3)
                 }
             }
-            .shadow(color: isSparking ? Color.purple.opacity(0.7) : .clear, radius: isSparking ? 9 : 0)
+            .shadow(color: isSparking ? Term.corruptionPurple.opacity(0.7) : .clear, radius: isSparking ? 9 : 0)
             .transition(.scale.combined(with: .opacity))
     }
 
     private var back: some View {
         RoundedRectangle(cornerRadius: 10)
-            .fill(LinearGradient(colors: [Color.indigo, Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .fill(LinearGradient(colors: [Color(red: 0.03, green: 0.15, blue: 0.07), Color.black], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Term.green.opacity(0.4), lineWidth: 1))
             .overlay {
-                Image(systemName: "bolt.horizontal.fill")
-                    .foregroundStyle(.white.opacity(0.45))
+                Text(">_")
+                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Term.green.opacity(0.6))
             }
             .transition(.scale.combined(with: .opacity))
     }

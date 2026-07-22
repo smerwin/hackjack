@@ -8,7 +8,8 @@ struct TableView: View {
         ZStack {
             background
             VStack(spacing: 10) {
-                statusBar
+                header
+                statusReadout
                 shoeRow
                 if let boss = viewModel.currentBoss {
                     bossBanner(boss)
@@ -46,22 +47,23 @@ struct TableView: View {
                     .padding(.horizontal)
                 }
 
+                if let armed = viewModel.armedHack {
+                    armedHackHint(armed)
+                }
+
                 if viewModel.dealerRevealed && !viewModel.lastOutcomes.isEmpty {
-                    Button {
+                    Button("[ NEXT HAND ]") {
                         withAnimation { viewModel.startHand() }
-                    } label: {
-                        Text("Next Hand")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(TerminalBracketButtonStyle(tint: Term.green, filled: true))
                     .padding(.horizontal)
                 } else {
                     actionBar
-                    hackTray
+                    hackToolsMenu
                 }
             }
             .padding(.top, 8)
+            .fontDesign(.monospaced)
 
             if let offer = viewModel.pendingFirmwareOffer {
                 dimmedOverlay {
@@ -82,7 +84,7 @@ struct TableView: View {
                 }
             }
         }
-        .alert("Hackjack", isPresented: Binding(
+        .alert("HACKJACK", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
             set: { if !$0 { viewModel.errorMessage = nil } }
         )) {
@@ -93,19 +95,42 @@ struct TableView: View {
     }
 
     private var background: some View {
-        LinearGradient(colors: [Color.black, Color(red: 0.08, green: 0.05, blue: 0.15)], startPoint: .top, endPoint: .bottom)
-            .ignoresSafeArea()
+        Term.background.ignoresSafeArea()
     }
 
-    private var statusBar: some View {
-        HStack(spacing: 14) {
-            statChip("Shift", "\(viewModel.runState.currentShiftIndex)")
-            statChip("Streak", "\(viewModel.runState.streakWithinShift)/\(viewModel.shiftConfig.targetStreak)")
-            statChip("Charges", "\(viewModel.runState.chargePool.current)/\(viewModel.runState.chargePool.max)")
-            statChip("¤", "\(viewModel.runState.shopCurrency)")
-            statChip("FW", "\(viewModel.runState.firmware.equipped.count)/\(viewModel.runState.firmware.capacity)")
+    private var header: some View {
+        HStack {
+            Text("> HACKJACK v0.2")
+                .font(.system(.footnote, design: .monospaced, weight: .bold))
+                .foregroundStyle(Term.green)
+            Text("_")
+                .font(.system(.footnote, design: .monospaced, weight: .bold))
+                .foregroundStyle(Term.green)
+                .opacity(0.8)
+            Spacer()
         }
         .padding(.horizontal)
+    }
+
+    private var statusReadout: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                bracketStat("SHIFT", "\(viewModel.runState.currentShiftIndex)")
+                bracketStat("STREAK", "\(viewModel.runState.streakWithinShift)/\(viewModel.shiftConfig.targetStreak)")
+            }
+            HStack(spacing: 8) {
+                bracketStat("CHARGES", "\(viewModel.runState.chargePool.current)/\(viewModel.runState.chargePool.max)")
+                bracketStat("CREDITS", "\(viewModel.runState.shopCurrency)")
+                bracketStat("FIRMWARE", "\(viewModel.runState.firmware.equipped.count)/\(viewModel.runState.firmware.capacity)")
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private func bracketStat(_ label: String, _ value: String) -> some View {
+        Text("[\(label) \(value)]")
+            .font(.system(.caption2, design: .monospaced, weight: .semibold))
+            .foregroundStyle(Term.green)
     }
 
     private var shoeRow: some View {
@@ -116,26 +141,19 @@ struct TableView: View {
         .padding(.horizontal)
     }
 
-    private func statChip(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 1) {
-            Text(value).font(.subheadline.bold().monospacedDigit()).foregroundStyle(.white)
-            Text(label).font(.caption2).foregroundStyle(.white.opacity(0.6))
-        }
-        .frame(maxWidth: .infinity)
-    }
-
     private func bossBanner(_ boss: BossCorruption) -> some View {
         VStack(spacing: 2) {
-            Text("BOSS CORRUPTION — \(boss.name)")
+            Text("!! SECURITY ALERT — \(boss.name) !!")
                 .font(.caption.bold())
             Text(boss.introLine)
                 .font(.caption2)
                 .multilineTextAlignment(.center)
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Term.alertRed)
         .padding(8)
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.red.opacity(0.35)))
+        .background(Color.black)
+        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(Term.alertRed, lineWidth: 1))
         .padding(.horizontal)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
@@ -143,23 +161,23 @@ struct TableView: View {
     private var outcomeBanner: some View {
         VStack(spacing: 4) {
             ForEach(Array(viewModel.lastOutcomes.enumerated()), id: \.offset) { index, outcome in
-                Text(viewModel.lastOutcomes.count > 1 ? "Hand \(index + 1): \(outcome.description)" : outcome.description)
+                Text(viewModel.lastOutcomes.count > 1 ? "HAND \(index + 1): \(outcome.description)" : outcome.description)
                     .font(.subheadline.bold())
             }
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Term.green)
         .padding(10)
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.08)))
+        .terminalPanel()
         .transition(.opacity)
     }
 
     private var logFeed: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(viewModel.log.suffix(6).enumerated()), id: \.offset) { _, line in
-                Text("· \(line)")
+                Text("$ \(line)")
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(Term.dimGreen)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -167,62 +185,84 @@ struct TableView: View {
 
     private var actionBar: some View {
         HStack(spacing: 10) {
-            Button {
+            Button("[ HIT ]") {
                 withAnimation { viewModel.hit() }
-            } label: {
-                Text("Hit").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(TerminalBracketButtonStyle(tint: Term.green, filled: true))
 
-            Button {
+            Button("[ STAND ]") {
                 withAnimation { viewModel.stand() }
-            } label: {
-                Text("Stand").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(TerminalBracketButtonStyle(tint: Term.green))
 
             if viewModel.canSplit {
-                Button {
+                Button("[ SPLIT ]") {
                     withAnimation { viewModel.split() }
-                } label: {
-                    Text("Split").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
-                .tint(.orange)
+                .buttonStyle(TerminalBracketButtonStyle(tint: .orange))
             }
         }
         .padding(.horizontal)
     }
 
-    private var hackTray: some View {
-        HStack(spacing: 8) {
-            hackButton(.jack, "J")
-            hackButton(.spoof, "S")
-            hackButton(.crash, "C")
-            hackButton(.patch, "P")
-            hackButton(.peek, "◎")
+    /// The whole point of the dropdown: every option shows its full name
+    /// and what it does, right there — no need to already know the game's
+    /// vocabulary to understand a button.
+    private var hackToolsMenu: some View {
+        Menu {
+            ForEach(PlayerHackType.allCases, id: \.self) { type in
+                Button {
+                    withAnimation { viewModel.arm(type) }
+                } label: {
+                    Label("\(type.displayName) — \(type.menuSubtitle)", systemImage: type.symbolName)
+                }
+            }
+        } label: {
+            HStack {
+                Image(systemName: "chevron.down.circle")
+                Text(viewModel.armedHack.map { "[ \($0.displayName) ARMED ▾ ]" } ?? "[ HACK TOOLS ▾ ]")
+            }
+            .font(.system(.subheadline, design: .monospaced, weight: .bold))
+            .foregroundStyle(viewModel.armedHack == nil ? Term.green : .yellow)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(viewModel.armedHack == nil ? Term.green : .yellow, lineWidth: 1))
         }
         .padding(.horizontal)
         .padding(.bottom, 8)
     }
 
-    private func hackButton(_ type: PlayerHackType, _ symbol: String) -> some View {
-        Button {
-            withAnimation { viewModel.arm(type) }
-        } label: {
-            Text(symbol)
-                .font(.headline)
-                .frame(maxWidth: .infinity, minHeight: 36)
+    private func armedHackHint(_ type: PlayerHackType) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: type.symbolName)
+                .foregroundStyle(.yellow)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(type.needsTarget ? "\(type.displayName) armed — tap a card to target it" : "\(type.displayName)")
+                    .font(.caption.bold())
+                Text(type.fullDescription)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            if type.needsTarget {
+                Button("cancel") { withAnimation { viewModel.armedHack = nil } }
+                    .font(.caption2)
+            }
         }
-        .buttonStyle(.bordered)
-        .tint(viewModel.armedHack == type ? .yellow : .purple)
+        .foregroundStyle(.white)
+        .padding(10)
+        .background(Color.black)
+        .overlay(RoundedRectangle(cornerRadius: Term.cornerRadius).stroke(Color.yellow.opacity(0.6), lineWidth: 1))
+        .padding(.horizontal)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private func dimmedOverlay<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea()
+            Color.black.opacity(0.7).ignoresSafeArea()
             content()
         }
+        .fontDesign(.monospaced)
         .transition(.opacity)
     }
 }
