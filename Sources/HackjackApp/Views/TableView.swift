@@ -9,6 +9,7 @@ struct TableView: View {
             background
             VStack(spacing: 10) {
                 statusBar
+                shoeRow
                 if let boss = viewModel.currentBoss {
                     bossBanner(boss)
                 }
@@ -103,6 +104,14 @@ struct TableView: View {
             statChip("Charges", "\(viewModel.runState.chargePool.current)/\(viewModel.runState.chargePool.max)")
             statChip("¤", "\(viewModel.runState.shopCurrency)")
             statChip("FW", "\(viewModel.runState.firmware.equipped.count)/\(viewModel.runState.firmware.capacity)")
+        }
+        .padding(.horizontal)
+    }
+
+    private var shoeRow: some View {
+        HStack {
+            Spacer()
+            ShoeView(remaining: viewModel.shoeCount)
         }
         .padding(.horizontal)
     }

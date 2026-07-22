@@ -15,6 +15,7 @@ final class GameViewModel {
     private(set) var playerHands: [Hand]
     private(set) var activeHandIndex: Int
     private(set) var dealerHand: Hand
+    private(set) var shoeCount: Int
     private(set) var currentBoss: BossCorruption?
     private(set) var ruleset: HandRuleset
     private(set) var pendingFirmwareOffer: FirmwareMutation?
@@ -33,6 +34,7 @@ final class GameViewModel {
         self.playerHands = engine.playerHands
         self.activeHandIndex = engine.activeHandIndex
         self.dealerHand = engine.dealerHand
+        self.shoeCount = engine.shoe.count
         self.currentBoss = engine.currentBoss
         self.ruleset = engine.ruleset
         self.pendingFirmwareOffer = engine.pendingFirmwareOffer
@@ -46,6 +48,7 @@ final class GameViewModel {
         playerHands = engine.playerHands
         activeHandIndex = engine.activeHandIndex
         dealerHand = engine.dealerHand
+        shoeCount = engine.shoe.count
         currentBoss = engine.currentBoss
         ruleset = engine.ruleset
         pendingFirmwareOffer = engine.pendingFirmwareOffer

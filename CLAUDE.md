@@ -105,10 +105,18 @@ polish to get to eventually:**
   this environment was a real risk, and the crossfade reads fine as "a
   card just resolved." Worth revisiting with actual device/preview
   iteration.
-- **Deal animation uses SwiftUI's implicit list-diff transitions**
-  (cards scale+fade in as they're appended to a hand's `cards` array),
-  not the `matchedGeometryEffect` shoe→hand-slot animation §6 describes.
-  There's no on-screen shoe view to animate *from* at all right now.
+- **A visible shoe and per-card deal animation now exist** (`ShoeView`,
+  top-trailing of the table, showing remaining count), **but the deal
+  isn't a `matchedGeometryEffect` tracking the shoe's real on-screen
+  frame** — it's a stylized `.transition` (`DealTransition.swift`) that
+  offsets/scales/fades/rotates a card in from a fixed direction matching
+  the shoe's corner, staggered per card index (`delay: index * 0.1s,
+  capped at 0.3s`) so the opening 2-card deal reads as sequential rather
+  than simultaneous. Chosen over literal frame-tracking for the same
+  reason as the flip: no live preview loop here to debug a subtly wrong
+  anchor, and this is far lower-risk to get right blind while still
+  reading clearly as "dealt from the shoe." Revisit with real
+  `matchedGeometryEffect` if/when there's a way to iterate visually.
 - **No dedicated hack-resolve shake+flash.** A resolved spark is only
   visible via the card's content changing (rank swaps) and the shimmer
   stopping — there's no explicit `.spring()` shake or color-flash
@@ -232,6 +240,8 @@ hackjack/
         Table/
           CardView.swift                     # single-card render + shimmer
           HandRowView.swift                    # one hand's row, active-hand highlight
+          ShoeView.swift                        # visible remaining-card stack
+          DealTransition.swift                   # stylized shoe-corner deal-in transition
         Sheets/
           FirmwareOfferOverlayView.swift        # keep/decline overlay
           ShopOverlayView.swift                  # Patch Shop overlay
@@ -744,7 +754,7 @@ SpriteKit for v1.
 |---|---|---|
 | Card flip (face-down → face-up) | `rotation3DEffect` on Y axis + `.easeInOut`, content swap at the midpoint | 🟨 simplified — `CardView` crossfades front/back via `.transition(.scale.combined(with: .opacity))` instead of a true Y-axis flip. Safer to get right without a live preview loop; revisit with real device iteration. |
 | Sparking shimmer | `withAnimation(.repeatForever())` driving small random offset jitter + glow/shadow color pulse | ✅ implemented — tiny z-axis `rotation3DEffect` + `scaleEffect` jitter, `repeatForever(autoreverses: true)`, driven directly off `card.pendingMutations != nil`. |
-| Deal (shoe → hand slot) | `matchedGeometryEffect` between a shared namespace on the shoe view and the destination hand slot | ⬜ not implemented — there's no on-screen shoe view to animate from. Cards appear via SwiftUI's implicit list-diff insertion transition when appended to a hand's `cards` array instead. |
+| Deal (shoe → hand slot) | `matchedGeometryEffect` between a shared namespace on the shoe view and the destination hand slot | 🟨 simplified — a visible `ShoeView` exists (top-trailing, shows remaining count), and cards use a stylized `.dealt` transition (offset+scale+fade+rotate from the shoe's corner, per-card stagger) rather than `matchedGeometryEffect` tracking the shoe's real frame. See §0 for why. |
 | Corruption resolve reveal | Quick `.spring()` shake (offset) + brief color-flash overlay | ⬜ not implemented — a resolved spark is only visible via the card's rank changing and the shimmer stopping; no explicit shake/flash. |
 | Hidden-hack tell | Low-opacity overlay view, animated independently of the card grid — build and validate this early since it carries gameplay information, not just polish | ⬜ not implemented — the one item this table calls out as highest-risk-if-skipped is, in fact, the one that got skipped. A hidden hack is only visible via the log feed's text line right now (§5.2, §0). |
 | Lateral infection thread | Animated `Path`/`Shape` with dash-phase animation between two tracked card frame origins (requires shared `PreferenceKey`-based frame tracking between hand views) | ⬜ not implemented — the underlying engine mechanic (§5.5) works and is tested; only the visual is missing. |
@@ -752,9 +762,10 @@ SpriteKit for v1.
 Build order for rendering, matching the tech proposal:
 
 1. ✅ Static card views + table/shop layout.
-2. 🟨 Deal + flip — deal exists (list-diff transition, not
-   `matchedGeometryEffect`); flip exists as a crossfade, not a true 3D
-   rotation. See the table above.
+2. 🟨 Deal + flip — a visible shoe and a stylized per-card deal-in
+   animation both exist (stagger delay per card index), just not via
+   `matchedGeometryEffect` against the shoe's real frame; flip exists as
+   a crossfade, not a true 3D rotation. See the table above.
 3. ✅ Spark/twitch shimmer — highest priority, since the tell system is
    gameplay-critical, not decorative. This is the one row of the table
    that landed as originally specified.

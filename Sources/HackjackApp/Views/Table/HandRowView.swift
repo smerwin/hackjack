@@ -38,6 +38,10 @@ struct HandRowView: View {
                         isTargetable: isTargetable,
                         onTap: { onTapCard(card.id) }
                     )
+                    .transition(.asymmetric(
+                        insertion: .dealt.animation(.spring(response: 0.42, dampingFraction: 0.78).delay(min(Double(index) * 0.1, 0.3))),
+                        removal: .opacity.combined(with: .scale(scale: 0.7)).animation(.easeIn(duration: 0.15))
+                    ))
                 }
             }
         }
