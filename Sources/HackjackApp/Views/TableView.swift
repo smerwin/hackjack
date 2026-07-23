@@ -3,6 +3,11 @@ import HackjackCore
 
 struct TableView: View {
     @State private var viewModel = GameViewModel()
+    /// Frames reported by `reportFrame(_:)` (the shoe, the dealer row, and
+    /// each hand row) in the shared "table" coordinate space below —
+    /// `dealOrigin(for:)` turns these into the real shoe → hand vector
+    /// each `HandRowView` flies its newly-dealt cards in from.
+    @State private var frames: [String: CGRect] = [:]
 
     var body: some View {
         ZStack {
@@ -23,8 +28,10 @@ struct TableView: View {
                             isDealer: true,
                             hideHoleCard: !viewModel.dealerRevealed,
                             isTargetable: viewModel.armedHack != nil,
+                            dealOrigin: dealOrigin(for: "dealer"),
                             onTapCard: { id in viewModel.targetCard(handIndex: nil, cardID: id, isDealer: true) }
                         )
+                        .reportFrame("dealer")
 
                         ForEach(Array(viewModel.playerHands.enumerated()), id: \.element.id) { index, hand in
                             HandRowView(
@@ -34,8 +41,10 @@ struct TableView: View {
                                 isDealer: false,
                                 hideHoleCard: false,
                                 isTargetable: viewModel.armedHack != nil && index == viewModel.activeHandIndex,
+                                dealOrigin: dealOrigin(for: "hand-\(hand.id)"),
                                 onTapCard: { id in viewModel.targetCard(handIndex: index, cardID: id, isDealer: false) }
                             )
+                            .reportFrame("hand-\(hand.id)")
                         }
 
                         if viewModel.dealerRevealed && !viewModel.lastOutcomes.isEmpty {
@@ -57,6 +66,9 @@ struct TableView: View {
                     }
                     .buttonStyle(TerminalBracketButtonStyle(tint: Term.green, filled: true))
                     .padding(.horizontal)
+                } else if viewModel.bustPendingHandIndex != nil {
+                    bustReprieveBar
+                    hackToolsMenu
                 } else {
                     actionBar
                     hackToolsMenu
@@ -83,7 +95,13 @@ struct TableView: View {
                     )
                 }
             }
+
+            if let pulse = viewModel.hiddenHackPulse {
+                HiddenHackFlashView().id(pulse)
+            }
         }
+        .coordinateSpace(name: "table")
+        .onPreferenceChange(FramePreferenceKey.self) { frames = $0 }
         .alert("HACKJACK", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
             set: { if !$0 { viewModel.errorMessage = nil } }
@@ -141,8 +159,21 @@ struct TableView: View {
         HStack {
             Spacer()
             ShoeView(remaining: viewModel.shoeCount)
+                .reportFrame("shoe")
         }
         .padding(.horizontal)
+    }
+
+    /// Real shoe → hand-row vector for the deal-in transition, from
+    /// frames `reportFrame(_:)` bubbles up. Falls back to the old fixed
+    /// guess until both frames have actually been reported at least once
+    /// (the first render or two, before layout has run) so a card never
+    /// deals with a zero/no-op offset.
+    private func dealOrigin(for key: String) -> CGSize {
+        guard let shoe = frames["shoe"], let row = frames[key] else {
+            return CGSize(width: -60, height: -70)
+        }
+        return CGSize(width: shoe.midX - row.midX, height: shoe.midY - row.midY)
     }
 
     private func bossBanner(_ boss: BossCorruption) -> some View {
@@ -205,6 +236,26 @@ struct TableView: View {
                 }
                 .buttonStyle(TerminalBracketButtonStyle(tint: .orange))
             }
+        }
+        .padding(.horizontal)
+    }
+
+    /// Shown instead of the normal HIT/STAND bar the instant a hit busts
+    /// the active hand — hitting further can't help (a hand's value only
+    /// ever goes up), but Jack/Crash still can, since they change a
+    /// card's rank immediately rather than through the spark-resolve
+    /// pipeline. The hack tools menu stays available underneath this.
+    private var bustReprieveBar: some View {
+        VStack(spacing: 8) {
+            Text("!! OVERFLOW — HACK A CARD BACK IN RANGE, OR ACCEPT THE LOSS !!")
+                .font(.caption.weight(.heavy))
+                .foregroundStyle(Term.alertRed)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+            Button("[ ACCEPT BUST ]") {
+                withAnimation { viewModel.acceptBust() }
+            }
+            .buttonStyle(TerminalBracketButtonStyle(tint: Term.alertRed, filled: true))
         }
         .padding(.horizontal)
     }

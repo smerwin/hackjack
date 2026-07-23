@@ -17,6 +17,7 @@ public final class GameEngine {
 
     private var effectiveShift: ShiftConfig
     private var log: [String] = []
+    private var events: [GameEvent] = []
     private var hacksUsedThisHand = false
     private var guardDaemonUsedThisHand = false
     private var sparkedMutationsThisHand: Set<MutationType> = []
@@ -43,6 +44,16 @@ public final class GameEngine {
     public func drainLog() -> [String] {
         let entries = log
         log = []
+        return entries
+    }
+
+    /// Drains and returns discrete events since the last call — the App
+    /// layer's hook for haptics (§5.2, §0's documented hidden-hack-tell
+    /// gap). Same drain-on-read shape as `drainLog()`, kept separate
+    /// because consumers act on these, not display them.
+    public func drainEvents() -> [GameEvent] {
+        let entries = events
+        events = []
         return entries
     }
 
@@ -80,6 +91,16 @@ public final class GameEngine {
         guardDaemonUsedThisHand = false
         sparkedMutationsThisHand = []
 
+        // Passive floor, not a general regen: only kicks in from a fully
+        // drained pool, and only 1 charge, so running out mid-Shift never
+        // permanently locks the player out of hacking, but charges still
+        // stay a real resource otherwise (a Shift-clear refill already
+        // covers the non-empty case via ScoringEngine).
+        if runState.chargePool.current == 0 && runState.chargePool.max > 0 {
+            runState.chargePool.current = 1
+            log.append(FlavorText.chargeRegen(using: &rng))
+        }
+
         if ruleset.playerBonusCharges > 0 {
             runState.chargePool.current += ruleset.playerBonusCharges
         }
@@ -111,7 +132,9 @@ public final class GameEngine {
             shoe = CorruptionGenerator.buildShoe(shift: effectiveShift, removedTypes: runState.removedCorruptionTypes, using: &rng)
             log.append("Shoe exhausted — fresh packets compiled mid-hand.")
         }
-        return shoe.removeFirst()
+        let card = shoe.removeFirst()
+        events.append(.cardDealt)
+        return card
     }
 
     /// Resolves every pending spark in a hand. Called at the top of any
@@ -201,6 +224,7 @@ public final class GameEngine {
             playerHands: &playerHands,
             shoe: &shoe,
             log: &log,
+            events: &events,
             attempts: ruleset.dealerHackAttemptMultiplier,
             forceHidden: ruleset.hiddenHacksOnly,
             using: &rng
@@ -222,9 +246,22 @@ public final class GameEngine {
         } else {
             log.append("Dealt \(card).")
         }
+        // A bust no longer locks the hand in by itself — it stays live
+        // (isResolved stays false) until acceptBust() finalizes it, so the
+        // player has a real window to Jack/Crash a card back under 21
+        // first. See Hand.isResolved and acceptBust() below.
         if playerHands[activeHandIndex].isBusted {
-            playerHands[activeHandIndex].isStood = true
+            log.append(FlavorText.bustReprieve(using: &rng))
         }
+        advanceActiveHandIfNeeded()
+    }
+
+    /// Locks in a bust the player has chosen not to (or can't) hack their
+    /// way out of. Only meaningful on an already-busted active hand; a
+    /// no-op otherwise so callers don't need to guard before calling it.
+    public func acceptBust() {
+        guard playerHands[activeHandIndex].isBusted else { return }
+        playerHands[activeHandIndex].bustLocked = true
         advanceActiveHandIfNeeded()
     }
 
@@ -302,6 +339,7 @@ public final class GameEngine {
             runState.chargePool.spend(cost)
             applyPlayerHackEffect(type, to: &dealerHand.cards[idx])
             log.append("\(FlavorText.hackConfirm(type, using: &rng)) (\(dealerHand.cards[idx]))")
+            events.append(.hackTriggered(visible: true))
         } else {
             let handIdx = targetHandIndex ?? activeHandIndex
             guard playerHands.indices.contains(handIdx),
@@ -311,6 +349,7 @@ public final class GameEngine {
             runState.chargePool.spend(cost)
             applyPlayerHackEffect(type, to: &playerHands[handIdx].cards[idx])
             log.append("\(FlavorText.hackConfirm(type, using: &rng)) (\(playerHands[handIdx].cards[idx]))")
+            events.append(.hackTriggered(visible: true))
         }
         hacksUsedThisHand = true
     }

@@ -23,6 +23,14 @@ final class GameViewModel {
     private(set) var log: [String] = []
     private(set) var lastOutcomes: [HandOutcome] = []
     private(set) var dealerRevealed = false
+    /// Bumps to a new value every time a *hidden* dealer hack fires —
+    /// there's no on-screen card to strike for one of these (§5.4's
+    /// shoe-resident target isn't in any rendered hand yet), so
+    /// `TableView` watches this token to trigger a location-less ambient
+    /// flash instead. A visible hack needs no equivalent here: the struck
+    /// `CardView` picks up its own strike animation directly from its
+    /// `rank`/`suit` changing.
+    private(set) var hiddenHackPulse: UUID?
 
     var armedHack: PlayerHackType?
     var errorMessage: String?
@@ -39,6 +47,7 @@ final class GameViewModel {
         self.ruleset = engine.ruleset
         self.pendingFirmwareOffer = engine.pendingFirmwareOffer
         self.pendingShopOffers = engine.pendingShopOffers
+        Haptics.prepare()
         startHand()
     }
 
@@ -57,10 +66,41 @@ final class GameViewModel {
         if log.count > 60 {
             log.removeFirst(log.count - 60)
         }
+        fireHaptics(for: engine.drainEvents())
+    }
+
+    /// Staggers back-to-back events (an opening 4-card deal, mainly) the
+    /// same way `DealTransition` staggers the matching visual — otherwise
+    /// several `impactOccurred()` calls issued in the same runloop tick
+    /// tend to blur into one buzz on-device instead of reading as distinct
+    /// taps.
+    private func fireHaptics(for events: [GameEvent]) {
+        for (index, event) in events.enumerated() {
+            let delay = min(Double(index) * 0.12, 0.4)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                switch event {
+                case .cardDealt:
+                    Haptics.cardDealt()
+                case .hackTriggered(let visible):
+                    Haptics.hackTriggered()
+                    if !visible {
+                        self.hiddenHackPulse = UUID()
+                    }
+                }
+            }
+        }
     }
 
     var allHandsResolved: Bool { engine.allPlayerHandsResolved }
     var canSplit: Bool { engine.canSplitActiveHand() }
+    /// Non-nil exactly when the active hand busted from a hit and hasn't
+    /// been locked in yet — the window `acceptBust()`/a rescuing hack
+    /// resolves. See `Hand.isResolved` for why a bust alone doesn't
+    /// already end the turn.
+    var bustPendingHandIndex: Int? {
+        guard !allHandsResolved, playerHands.indices.contains(activeHandIndex) else { return nil }
+        return playerHands[activeHandIndex].isBusted ? activeHandIndex : nil
+    }
 
     func startHand() {
         dealerRevealed = false
@@ -89,6 +129,14 @@ final class GameViewModel {
             errorMessage = "Can't split that hand."
         }
         sync()
+    }
+
+    /// Locks in a bust the player didn't (or couldn't) hack their way out
+    /// of. A no-op if the active hand isn't actually busted.
+    func acceptBust() {
+        engine.acceptBust()
+        sync()
+        finishTurnIfNeeded()
     }
 
     func arm(_ type: PlayerHackType) {

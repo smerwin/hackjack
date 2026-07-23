@@ -66,6 +66,31 @@ public enum FlavorText {
         return pool.randomElement(using: &rng)!
     }
 
+    /// Fires the moment a hit pushes a hand over 21 — before it's locked
+    /// in, since the player now gets a real chance to hack a card back
+    /// under the limit instead of the bust being final.
+    public static func bustReprieve<G: RandomNumberGenerator>(using rng: inout G) -> String {
+        let pool = [
+            "Overflow detected. Not committed yet — patch it before it writes.",
+            "Stack's over the limit. There's still a window to rewrite it.",
+            "Overflow, uncommitted. Hack a card back in range, or let it write.",
+        ]
+        return pool.randomElement(using: &rng)!
+    }
+
+    /// Fires from `GameEngine.startHand()` when the charge pool was
+    /// completely drained at the end of the previous hand — the pool
+    /// regenerates 1 charge, but only from zero, so a player is never
+    /// permanently locked out of hacking within a Shift.
+    public static func chargeRegen<G: RandomNumberGenerator>(using rng: inout G) -> String {
+        let pool = [
+            "Charge pool was bone dry. One trickles back in from somewhere upstream.",
+            "Buffer hit zero. A stray charge drifts back before the next hand compiles.",
+            "Empty pool, refilled by one. Don't get used to it.",
+        ]
+        return pool.randomElement(using: &rng)!
+    }
+
     public static func systemPurge<G: RandomNumberGenerator>(using rng: inout G) -> String {
         let pool = [
             "INTEGRITY FAILURE. Flushing shoe. Try not to look so relieved.",

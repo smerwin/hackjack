@@ -12,6 +12,7 @@ public enum DealerAI {
         playerHands: inout [Hand],
         shoe: inout [Card],
         log: inout [String],
+        events: inout [GameEvent],
         attempts: Int = 1,
         forceHidden: Bool = false,
         using rng: inout G
@@ -23,6 +24,7 @@ public enum DealerAI {
                 playerHands: &playerHands,
                 shoe: &shoe,
                 log: &log,
+                events: &events,
                 forceHidden: forceHidden,
                 using: &rng
             )
@@ -35,6 +37,7 @@ public enum DealerAI {
         playerHands: inout [Hand],
         shoe: inout [Card],
         log: inout [String],
+        events: inout [GameEvent],
         forceHidden: Bool,
         using rng: inout G
     ) {
@@ -42,37 +45,44 @@ public enum DealerAI {
 
         let attemptHidden = !shoe.isEmpty && (forceHidden || (shift.hiddenHacksUnlocked && Bool.random(using: &rng)))
         if attemptHidden {
-            hackShoe(&shoe, removedTypes: removedTypes, log: &log, using: &rng)
+            hackShoe(&shoe, removedTypes: removedTypes, log: &log, events: &events, using: &rng)
             return
         }
 
         let liveHandIndices = playerHands.indices.filter { !playerHands[$0].cards.isEmpty && !playerHands[$0].isResolved }
         guard let targetIndex = liveHandIndices.randomElement(using: &rng) else { return }
-        hackVisibleCard(in: &playerHands[targetIndex], removedTypes: removedTypes, log: &log, using: &rng)
+        hackVisibleCard(in: &playerHands[targetIndex], removedTypes: removedTypes, log: &log, events: &events, using: &rng)
     }
 
     private static func hackVisibleCard<G: RandomNumberGenerator>(
         in hand: inout Hand,
         removedTypes: Set<MutationType>,
         log: inout [String],
+        events: inout [GameEvent],
         using rng: inout G
     ) {
         let idx = Int.random(in: 0..<hand.cards.count, using: &rng)
         applyDealerHack(to: &hand.cards[idx], removedTypes: removedTypes, tell: .visible, using: &rng)
         log.append("\(FlavorText.dealerHackVisible(using: &rng)) (\(hand.cards[idx]))")
+        events.append(.hackTriggered(visible: true))
     }
 
     /// Targets the next card due to be drawn — the shoe-resident analog of
     /// "a face-down card you haven't looked at yet" (§5.4). Tell is muffled
-    /// and carries no card identity, matching the "no HUD callouts" rule.
+    /// and carries no card identity, matching the "no HUD callouts" rule —
+    /// the haptic fired alongside it is the one exception: it's neither
+    /// visual nor text, so it can carry the "something just happened" cue
+    /// for a hidden hack without violating that rule (§5.2, §0).
     private static func hackShoe<G: RandomNumberGenerator>(
         _ shoe: inout [Card],
         removedTypes: Set<MutationType>,
         log: inout [String],
+        events: inout [GameEvent],
         using rng: inout G
     ) {
         applyDealerHack(to: &shoe[0], removedTypes: removedTypes, tell: .hidden, using: &rng)
         log.append(FlavorText.dealerHackHidden(using: &rng))
+        events.append(.hackTriggered(visible: false))
     }
 
     private static func applyDealerHack<G: RandomNumberGenerator>(

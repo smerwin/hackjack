@@ -19,7 +19,8 @@ final class DealerAITests: XCTestCase {
             var hands = plainHands()
             var shoe = plainShoe()
             var log: [String] = []
-            DealerAI.maybeHack(shift: shift, removedTypes: [], playerHands: &hands, shoe: &shoe, log: &log, using: &rng)
+            var events: [GameEvent] = []
+            DealerAI.maybeHack(shift: shift, removedTypes: [], playerHands: &hands, shoe: &shoe, log: &log, events: &events, using: &rng)
             XCTAssertNil(shoe[0].sparkTell, "hidden hacks must stay locked out before Shift 4")
         }
     }
@@ -34,7 +35,8 @@ final class DealerAITests: XCTestCase {
             var hands = plainHands()
             var shoe = plainShoe()
             var log: [String] = []
-            DealerAI.maybeHack(shift: shift, removedTypes: [], playerHands: &hands, shoe: &shoe, log: &log, using: &rng)
+            var events: [GameEvent] = []
+            DealerAI.maybeHack(shift: shift, removedTypes: [], playerHands: &hands, shoe: &shoe, log: &log, events: &events, using: &rng)
             if shoe[0].sparkTell == .hidden {
                 foundHiddenHack = true
                 break
@@ -49,7 +51,8 @@ final class DealerAITests: XCTestCase {
         var hands = plainHands()
         var shoe = plainShoe()
         var log: [String] = []
-        DealerAI.maybeHack(shift: shift, removedTypes: [], playerHands: &hands, shoe: &shoe, log: &log, using: &rng)
+        var events: [GameEvent] = []
+        DealerAI.maybeHack(shift: shift, removedTypes: [], playerHands: &hands, shoe: &shoe, log: &log, events: &events, using: &rng)
         XCTAssertTrue(hands[0].cards.contains { $0.sparkTell == .visible })
         XCTAssertFalse(log.isEmpty)
     }
@@ -60,7 +63,8 @@ final class DealerAITests: XCTestCase {
         var hands = plainHands()
         var shoe = plainShoe()
         var log: [String] = []
-        DealerAI.maybeHack(shift: shift, removedTypes: [], playerHands: &hands, shoe: &shoe, log: &log, forceHidden: true, using: &rng)
+        var events: [GameEvent] = []
+        DealerAI.maybeHack(shift: shift, removedTypes: [], playerHands: &hands, shoe: &shoe, log: &log, events: &events, forceHidden: true, using: &rng)
         XCTAssertEqual(shoe[0].sparkTell, .hidden, "Ghost Protocol's forceHidden must win even when hiddenHacksUnlocked is false")
         XCTAssertFalse(hands[0].cards.contains { $0.sparkTell != nil })
     }
@@ -76,7 +80,8 @@ final class DealerAITests: XCTestCase {
             ])]
             var shoe = plainShoe()
             var log: [String] = []
-            DealerAI.maybeHack(shift: shift, removedTypes: [], playerHands: &hands, shoe: &shoe, log: &log, attempts: 2, using: &rng)
+            var events: [GameEvent] = []
+            DealerAI.maybeHack(shift: shift, removedTypes: [], playerHands: &hands, shoe: &shoe, log: &log, events: &events, attempts: 2, using: &rng)
             let sparkedCount = hands[0].cards.filter { $0.sparkTell != nil }.count + (shoe[0].sparkTell != nil ? 1 : 0)
             if sparkedCount >= 2 {
                 foundTwoHits = true

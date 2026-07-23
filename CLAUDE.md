@@ -22,7 +22,7 @@ specific effect exists.
 **Run it:**
 
 ```
-swift build && swift test          # HackjackCore + HackjackCLI, 31 tests
+swift build && swift test          # HackjackCore + HackjackCLI, 34 tests
 swift run HackjackCLI               # terminal playtest harness
 
 xcodegen generate                    # regenerates Hackjack.xcodeproj from project.yml
@@ -56,9 +56,17 @@ xcrun simctl launch booted com.hackjack.app
   player-hacked card could show as sparking but never resolve. All three
   now route through `CorruptionGenerator.markSparking` like every other
   corruption source.
-- `Tests/HackjackCoreTests`: 31 tests across `CorruptionGeneratorTests`,
-  `GameEngineTests`, `DealerAITests`, and the new `AdvancedSystemsTests`
-  (splits, Firmware, shop, bosses, Purge, Daily Breach).
+- `Tests/HackjackCoreTests`: 34 tests across `CorruptionGeneratorTests`,
+  `GameEngineTests`, `DealerAITests`, and `AdvancedSystemsTests`
+  (splits, Firmware, shop, bosses, Purge, Daily Breach). `GameEngineTests`
+  now also covers the bust-reprieve mechanic (§5.3a): a bust no longer
+  auto-resolves the hand, and Jack/Crash can pull a busted hand back
+  under 21 before it locks in.
+- Two new features since the last pass: **bust reprieve** (§5.3a — a bust
+  no longer ends the hand; the player can hack a card's rank back under
+  21 before accepting the loss) and **haptics** (§5.3b — sharp taps on
+  every card deal and every hack, visible or hidden, via a new typed
+  `GameEvent`/`drainEvents()` feed alongside the existing narrative log).
 
 **Built and working — app (`Sources/HackjackApp`, `project.yml`):**
 
@@ -142,13 +150,17 @@ polish to get to eventually:**
   visible via the card's content changing (rank swaps) and the shimmer
   stopping — there's no explicit `.spring()` shake or color-flash
   overlay marking the moment of resolution.
-- **No distinct hidden-hack tell.** §5.2 specifies a muffled,
-  edge-of-screen flicker for dealer hidden hacks, separate from the
-  sharp on-card shimmer used for visible hacks. Right now a hidden hack
-  is only visible via the log feed text line — there's no dedicated
-  low-opacity overlay view at all. This is a real deviation from the
-  "spark is the only tell, no text" rule in §5.2, not just missing
-  polish.
+- **No distinct hidden-hack *visual* tell — now partially mitigated by
+  haptics.** §5.2 specifies a muffled, edge-of-screen flicker for dealer
+  hidden hacks, separate from the sharp on-card shimmer used for visible
+  hacks. That flicker still doesn't exist — there's no dedicated
+  low-opacity overlay view. What does now exist (§5.3b): a distinct
+  `UINotificationFeedbackGenerator` haptic fires for every hack, visible
+  or hidden, via `GameEngine.drainEvents()`. A vibration isn't a visual
+  or text tell, so it doesn't reopen the "no text" violation the old gap
+  described, but it also isn't the flicker §5.2 specifies — treat the
+  visual gap as still open, with haptics as a real but separate,
+  additional tell layered on top of it.
 - **No lateral-infection thread.** The engine mechanic (§5.5) works and
   is tested; the `Path`/dash-phase visual connecting adjacent hands
   described in §6 doesn't exist. Infection is only visible as a log line
@@ -233,8 +245,9 @@ hackjack/
       Models/
         Card.swift                    # Suit, Rank, Card
         Corruption.swift               # SparkTell, MutationType
-        Hand.swift                      # Hand (bestValue/isBusted/isBlackjack computed)
+        Hand.swift                      # Hand (bestValue/isBusted/isBlackjack computed, bustLocked — §5.3a)
         Hack.swift                       # PlayerHackType, DealerHackType, HackChargePool
+        GameEvent.swift                   # GameEvent — typed drain-on-read feed for haptics (§5.3b)
         Shift.swift                       # ShiftConfig + .standard(index:) defaults
         RunState.swift                     # RunState, HandOutcome
         Firmware.swift                       # FirmwareEffect, FirmwareMutation, FirmwareSlots
@@ -255,6 +268,8 @@ hackjack/
         HackjackApp.swift               # @main App entry point
       ViewModels/
         GameViewModel.swift              # @Observable wrapper snapshotting GameEngine state
+      Support/
+        Haptics.swift                     # UIKit haptics — deal taps + a distinct hack tap (§5.3b)
       Views/
         ContentView.swift                 # hosts TableView
         TableView.swift                    # main game screen: status bar, hands, hack tray, overlays
@@ -267,7 +282,7 @@ hackjack/
           FirmwareOfferOverlayView.swift        # keep/decline overlay
           ShopOverlayView.swift                  # Patch Shop overlay
   Tests/
-    HackjackCoreTests/                # ✅ built — 31 tests, `swift test`
+    HackjackCoreTests/                # ✅ built — 34 tests, `swift test`
       CorruptionGeneratorTests.swift
       GameEngineTests.swift
       DealerAITests.swift
@@ -334,12 +349,16 @@ struct Hand: Identifiable, Sendable {
     var isSplitChild: Bool           // ✅ set on split children (GameEngine.playerSplit)
     var adjacentHandIDs: [UUID]       // ✅ linked by GameEngine.relinkAdjacency after every split
     var isStood: Bool
+    var bustLocked: Bool             // ✅ set only by GameEngine.acceptBust() — see §5.3a
     var bestValue: Int { get }          // computed, soft-ace aware
     var isBusted: Bool { get }           // computed: bestValue > 21
     var isBlackjack: Bool { get }         // computed: 2 cards, bestValue == 21
-    var isResolved: Bool { get }           // computed: isStood || isBusted
+    var isResolved: Bool { get }           // computed: isStood || (isBusted && bustLocked)
     var hasPendingSpark: Bool { get }       // computed
 }
+
+// GameEvent.swift
+enum GameEvent: Sendable, Equatable { case cardDealt, hackTriggered }  // ✅ see §5.3a — drained like the log, but typed
 
 // Hack.swift
 enum PlayerHackType: String, CaseIterable, Sendable { case jack, spoof, crash, patch, peek }
@@ -530,6 +549,79 @@ corruption density is ≥ 0.35 ("Critical" band, per the threshold this
 guide originally left vague). Jack's rank shift is
 `Int.random(in: -3...3)` through the shared `shiftedRank(_:by:)` helper —
 same function the dealer's Jack uses (Card.swift), so the two can't drift.
+
+### 5.3a Bust reprieve — ✅ implemented (`Hand.bustLocked`, `GameEngine.acceptBust()`)
+
+A bust no longer ends the hand by itself. `Hand.isResolved` is now `isStood
+|| (isBusted && bustLocked)` rather than the original `isStood ||
+isBusted` — going over 21 stops advancing the active hand and stops
+`GameEngine.allPlayerHandsResolved` from going true, but doesn't finalize
+anything on its own. This matters because Jack and Crash change a card's
+rank *immediately*, synchronously, inside `applyPlayerHackEffect` — the
+`markSparking` call alongside them only queues a *later* mutation, it
+doesn't gate the rank change already applied. So `playerHack(.jack, ...)`
+or `.crash` on a card in the busted hand can pull `bestValue` back under
+21 right there, with no engine change needed beyond keeping the hand open
+long enough for the player to try it.
+
+`GameEngine.acceptBust()` is the explicit "give up on this hand" action —
+it sets `bustLocked = true` on the active hand and calls
+`advanceActiveHandIfNeeded()`, exactly mirroring what `playerStand()`
+already does via `isStood`. If the player instead successfully hacks the
+hand back under 21, `isBusted` goes false on its own and the hand is
+simply live again — no separate "un-bust" method exists or is needed.
+This composes with splits for free: since `advanceActiveHandIfNeeded()`
+already keys off `isResolved`, a busted-and-unlocked hand in a split
+correctly blocks auto-advance to the next hand until the player resolves
+it one way or the other, same as it already did for a hand awaiting a
+stand.
+
+The CLI needed no changes — `playerStand()` still sets `isStood = true`
+unconditionally, so hitting "stand" on an already-busted hand already
+finalizes it there, same effective outcome as `acceptBust()`. The SwiftUI
+app does need dedicated UI (`GameViewModel.bustPendingHandIndex`,
+`TableView`'s `bustReprieveBar` swapped in for the normal HIT/STAND bar)
+since it's the one surface where the turn used to auto-advance to the
+dealer/settlement the instant `allPlayerHandsResolved` went true.
+
+### 5.3b Event feed for haptics — ✅ implemented (`GameEvent`, `GameEngine.drainEvents()`)
+
+A second drain-on-read queue alongside `log`/`drainLog()`, typed instead
+of narrative text, added specifically so the App layer can trigger
+haptics off discrete facts (`.cardDealt`, `.hackTriggered`) rather than
+pattern-matching `FlavorText` strings. `drawCard()` appends `.cardDealt`
+at its single choke point (covers the opening deal, hits, dealer draws,
+and split draws in one place). `.hackTriggered` is appended both by
+`GameEngine.playerHack(_:)` and by `DealerAI` (now threaded with an
+`events: inout [GameEvent]` parameter alongside its existing `log: inout
+[String]` one) for **both** visible and hidden dealer hacks.
+
+This is what closes — partially — the §5.2/§0/§6 gap that a hidden
+dealer hack has no tell at all in the SwiftUI app beyond a log line: the
+App layer's `Haptics.hackTriggered()` (a `UINotificationFeedbackGenerator`
+`.warning`, deliberately a different pattern from `Haptics.cardDealt()`'s
+plain `UIImpactFeedbackGenerator`) fires for a hidden hack same as a
+visible one, and a vibration is neither visual nor text, so it doesn't
+violate the "spark is the only tell" rule (§5.2) the way a HUD toast
+would. It is *not* the sound §7/§8 call out as the single biggest
+remaining gap — Ghost Protocol's "audio only" premise still has no actual
+audio — but it's a real, working tactile tell where previously there was
+none, and `GameViewModel.fireHaptics(for:)` staggers back-to-back events
+(`delay: index * 0.12s, capped at 0.4s`) the same way `DealTransition`
+already staggers the visual deal, so a 4-card opening hand reads as
+distinct taps rather than one blurred buzz.
+
+### 5.3c Charge pool floor regen — ✅ implemented (`GameEngine.startHand()`)
+
+A fully drained `HackChargePool` (`current == 0`) regenerates exactly 1
+charge at the start of the next hand, logged via
+`FlavorText.chargeRegen(using:)`. This is a floor against permanent
+lockout within a Shift, not a general regen — it only fires from zero; a
+pool sitting at 1 or 2 charges is left untouched, and a Shift-clear
+refill (`ScoringEngine.apply`, already existing) still covers the
+non-empty case. Placed before the boss `playerBonusCharges` bump in
+`startHand()` so the two stack normally (a Root Access hand after a fully
+drained pool gets the +1 floor, then +2 more from the boss).
 
 ### 5.4 Hacking — dealer — ✅ implemented (`DealerAI.maybeHack`)
 
@@ -930,6 +1022,16 @@ touched.
 - "INTEGRITY FAILURE. Flushing shoe. Try not to look so relieved."
 - "The table remembers nothing. Neither should you."
 
+**Bust reprieve** (`FlavorText.bustReprieve(using:)`, new — see §5.3a; fires from `GameEngine.playerHit()` the instant a hit pushes the active hand over 21):
+- "Overflow detected. Not committed yet — patch it before it writes."
+- "Stack's over the limit. There's still a window to rewrite it."
+- "Overflow, uncommitted. Hack a card back in range, or let it write."
+
+**Charge pool regen** (`FlavorText.chargeRegen(using:)`, new — see §5.3c; fires from `GameEngine.startHand()` only when the pool was fully drained):
+- "Charge pool was bone dry. One trickles back in from somewhere upstream."
+- "Buffer hit zero. A stray charge drifts back before the next hand compiles."
+- "Empty pool, refilled by one. Don't get used to it."
+
 **Boss Corruption intros** (wired up, but *not* through `FlavorText` — they live as `BossCorruption.introLine` in `BossCorruption.swift` instead, since each boss already needed a computed `name`/`introLine` pair and duplicating that through a second lookup didn't add anything. Worth noting as the one exception to this section's "all copy in one place" principle):
 - Firewall Down: "No patches today. Whatever sparks, you're wearing it."
 - Root Access: "Everybody's got admin now. Try not to break the table."
@@ -964,7 +1066,7 @@ touched.
   the app and exercise the feature before calling it done — type-checking
   a shimmer animation doesn't confirm it reads as "sparking" at a glance.
 
-**Current state:** 31 tests, all passing, run with `swift test` (no
+**Current state:** 34 tests, all passing, run with `swift test` (no
 simulator needed — confirms the UI-independence requirement above holds;
 `Sources/HackjackApp` isn't declared as a Package.swift target, so it
 plays no part in this test run at all).
@@ -973,7 +1075,14 @@ plays no part in this test run at all).
   different-seed divergence, shop-removed-type exclusion, the
   pending-pair-visible-until-`resolve()` invariant, Twinner's
   duplicate-another-card behavior.
-- `GameEngineTests` (8): deal shape, hit-until-turn-ends, stand doesn't
+- `GameEngineTests` (11): deal shape, **hitting into a bust no longer
+  auto-resolves the hand until `acceptBust()`** (replaces the old
+  hit-until-turn-ends test now that a bust doesn't auto-stand — §5.3a),
+  **hacking a busted hand's card back under 21 reopens it** (the actual
+  "hack yourself out of busting" feature, verified by searching seeds for
+  one where Crash pulls `bestValue` back under 21), **a fully drained
+  charge pool regenerates exactly 1 charge at the next hand, and a
+  non-empty pool doesn't** (§5.3c), stand doesn't
   draw, **the mutation-pair-shown-before-a-committing-action ordering**
   (via the public API, searching seeds 0..<300 for one that deals a
   starting spark — this is the test called out above as easy to

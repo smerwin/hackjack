@@ -8,6 +8,10 @@ public struct Hand: Identifiable, Sendable {
     /// splits ship — left in place so Hand's shape doesn't change later.
     public var adjacentHandIDs: [UUID]
     public var isStood: Bool
+    /// Set only by `GameEngine.acceptBust()` — a bust no longer finalizes a
+    /// hand by itself, so the player gets a real window to hack a card back
+    /// under 21 before the loss locks in (see `isResolved`).
+    public var bustLocked: Bool
 
     public init(id: UUID = UUID(), cards: [Card] = [], isSplitChild: Bool = false, adjacentHandIDs: [UUID] = []) {
         self.id = id
@@ -15,6 +19,7 @@ public struct Hand: Identifiable, Sendable {
         self.isSplitChild = isSplitChild
         self.adjacentHandIDs = adjacentHandIDs
         self.isStood = false
+        self.bustLocked = false
     }
 
     /// Best total under standard soft-ace rules.
@@ -30,6 +35,11 @@ public struct Hand: Identifiable, Sendable {
 
     public var isBusted: Bool { bestValue > 21 }
     public var isBlackjack: Bool { cards.count == 2 && bestValue == 21 }
-    public var isResolved: Bool { isStood || isBusted }
+    /// A bust alone no longer resolves a hand — only an explicit stand, or
+    /// a bust the player has accepted via `acceptBust()`, does. This is
+    /// what gives the player a real window to hack a card's rank back down
+    /// before the loss locks in, instead of the turn ending the instant
+    /// `bestValue` crosses 21.
+    public var isResolved: Bool { isStood || (isBusted && bustLocked) }
     public var hasPendingSpark: Bool { cards.contains { $0.pendingMutations != nil } }
 }

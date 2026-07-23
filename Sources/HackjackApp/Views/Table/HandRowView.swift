@@ -8,7 +8,16 @@ struct HandRowView: View {
     let isDealer: Bool
     let hideHoleCard: Bool
     let isTargetable: Bool
+    /// Real shoe → this-row vector, computed by `TableView.dealOrigin(for:)`
+    /// from reported frames — see `DealTransition.swift`.
+    let dealOrigin: CGSize
     let onTapCard: (UUID) -> Void
+
+    /// False while the dealer's hole card is still face down — gates
+    /// every badge/value that would otherwise leak the dealer's hand
+    /// early (§5.2's spark tell already respects this same idea: nothing
+    /// about a hidden card should be readable from other UI state).
+    private var isRevealed: Bool { !(isDealer && hideHoleCard) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -16,17 +25,17 @@ struct HandRowView: View {
                 Text(label)
                     .font(.caption.weight(.heavy))
                     .foregroundStyle(Term.dimGreen)
-                if hand.isBusted {
+                if isRevealed && hand.isBusted {
                     Label("BUSTED", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption2.weight(.heavy))
                         .foregroundStyle(Term.alertRed)
-                } else if hand.isBlackjack {
+                } else if isRevealed && hand.isBlackjack {
                     Label("21!", systemImage: "bolt.fill")
                         .font(.caption2.weight(.heavy))
                         .foregroundStyle(.yellow)
                 }
                 Spacer()
-                Text(isDealer && hideHoleCard ? "?" : "\(hand.bestValue)")
+                Text(isRevealed ? "\(hand.bestValue)" : "?")
                     .font(.subheadline.monospacedDigit().weight(.heavy))
                     .foregroundStyle(Term.green)
             }
@@ -39,7 +48,7 @@ struct HandRowView: View {
                         onTap: { onTapCard(card.id) }
                     )
                     .transition(.asymmetric(
-                        insertion: .dealt.animation(.spring(response: 0.42, dampingFraction: 0.78).delay(min(Double(index) * 0.1, 0.3))),
+                        insertion: .dealt(from: dealOrigin).animation(.spring(response: 0.42, dampingFraction: 0.78).delay(min(Double(index) * 0.1, 0.3))),
                         removal: .opacity.combined(with: .scale(scale: 0.7)).animation(.easeIn(duration: 0.15))
                     ))
                 }
