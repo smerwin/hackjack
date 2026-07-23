@@ -1,25 +1,17 @@
 import Foundation
 
+/// One tower's blackjack hand. There's no dealer and no "resolving" a
+/// hand anymore — a tower just keeps whatever total its hand currently
+/// has (busted or not) until the player redeals it. `power` is the one
+/// piece of new logic this game actually runs on: a tower's live
+/// damage/fire-rate *is* its hand's current total.
 public struct Hand: Identifiable, Sendable {
     public let id: UUID
     public var cards: [Card]
-    public var isSplitChild: Bool
-    /// Split-cluster neighbors, for lateral infection (§5.5). Unused until
-    /// splits ship — left in place so Hand's shape doesn't change later.
-    public var adjacentHandIDs: [UUID]
-    public var isStood: Bool
-    /// Set only by `GameEngine.acceptBust()` — a bust no longer finalizes a
-    /// hand by itself, so the player gets a real window to hack a card back
-    /// under 21 before the loss locks in (see `isResolved`).
-    public var bustLocked: Bool
 
-    public init(id: UUID = UUID(), cards: [Card] = [], isSplitChild: Bool = false, adjacentHandIDs: [UUID] = []) {
+    public init(id: UUID = UUID(), cards: [Card] = []) {
         self.id = id
         self.cards = cards
-        self.isSplitChild = isSplitChild
-        self.adjacentHandIDs = adjacentHandIDs
-        self.isStood = false
-        self.bustLocked = false
     }
 
     /// Best total under standard soft-ace rules.
@@ -35,11 +27,9 @@ public struct Hand: Identifiable, Sendable {
 
     public var isBusted: Bool { bestValue > 21 }
     public var isBlackjack: Bool { cards.count == 2 && bestValue == 21 }
-    /// A bust alone no longer resolves a hand — only an explicit stand, or
-    /// a bust the player has accepted via `acceptBust()`, does. This is
-    /// what gives the player a real window to hack a card's rank back down
-    /// before the loss locks in, instead of the turn ending the instant
-    /// `bestValue` crosses 21.
-    public var isResolved: Bool { isStood || (isBusted && bustLocked) }
-    public var hasPendingSpark: Bool { cards.contains { $0.pendingMutations != nil } }
+
+    /// The tower's live damage/fire-rate. A bust drops a tower to zero
+    /// power until it's redealt — no rescue, no ceremony, just the
+    /// direct consequence of pushing a hand too far.
+    public var power: Int { isBusted ? 0 : bestValue }
 }

@@ -2,170 +2,192 @@ import XCTest
 @testable import HackjackCore
 
 final class GameEngineTests: XCTestCase {
-    func testStartHandDealsTwoAndTwo() {
+    // MARK: - Hand.power
+
+    func testHandPowerIsCurrentTotalUnlessBusted() {
+        var hand = Hand(cards: [Card(rank: .king, suit: .spades), Card(rank: .nine, suit: .hearts)])
+        XCTAssertEqual(hand.power, 19)
+        hand.cards.append(Card(rank: .five, suit: .clubs))
+        XCTAssertTrue(hand.isBusted)
+        XCTAssertEqual(hand.power, 0, "a busted hand contributes zero power until redealt")
+    }
+
+    // MARK: - Determinism
+
+    func testSameSeedProducesSameOpeningState() {
+        let engineA = GameEngine(seed: 42)
+        let engineB = GameEngine(seed: 42)
+        engineA.startStage()
+        engineB.startStage()
+        XCTAssertEqual(engineA.towers.map { $0.cards.map(\.description) }, engineB.towers.map { $0.cards.map(\.description) })
+        XCTAssertEqual(engineA.mobs.map { $0.card.description }, engineB.mobs.map { $0.card.description })
+    }
+
+    func testDifferentSeedsDiverge() {
+        let engineA = GameEngine(seed: 1)
+        let engineB = GameEngine(seed: 2)
+        engineA.startStage()
+        engineB.startStage()
+        XCTAssertNotEqual(engineA.towers.map { $0.cards.map(\.description) }, engineB.towers.map { $0.cards.map(\.description) })
+    }
+
+    // MARK: - Stage start
+
+    func testStartStageDealsFreshHandsAndSpawnsFirstMob() {
         let engine = GameEngine(seed: 1)
-        engine.startHand()
-        XCTAssertEqual(engine.activeHand.cards.count, 2)
-        XCTAssertEqual(engine.dealerHand.cards.count, 2)
+        engine.startStage()
+        XCTAssertEqual(engine.towers.count, 3)
+        XCTAssertTrue(engine.towers.allSatisfy { $0.cards.count == 2 })
+        XCTAssertEqual(engine.mobs.count, 1, "the first mob should spawn immediately on stage start")
+        XCTAssertEqual(engine.mobs[0].stepsRemaining, engine.stageConfig.mobStartingSteps)
     }
 
-    /// A fully drained charge pool regenerates exactly 1 charge at the
-    /// start of the next hand — a floor against permanent lockout, not a
-    /// general regen (a non-empty pool is left untouched).
-    func testChargePoolRegeneratesOneWhenFullyDrained() {
-        let runState = RunState(chargePool: HackChargePool(current: 0, max: 3))
-        let engine = GameEngine(runState: runState, seed: 6)
-        engine.startHand()
-        XCTAssertEqual(engine.runState.chargePool.current, 1)
+    // MARK: - hit
+
+    func testHitDrawsACardIntoTheTargetedTower() {
+        let engine = GameEngine(seed: 3)
+        engine.startStage()
+        let before = engine.towers[0].cards.count
+        engine.hit(towerIndex: 0)
+        XCTAssertEqual(engine.towers[0].cards.count, before + 1)
     }
 
-    func testChargePoolDoesNotRegenerateWhenNotFullyDrained() {
-        let runState = RunState(chargePool: HackChargePool(current: 2, max: 3))
-        let engine = GameEngine(runState: runState, seed: 6)
-        engine.startHand()
-        XCTAssertEqual(engine.runState.chargePool.current, 2, "regen must only kick in from a fully empty pool")
-    }
-
-    /// A bust no longer finalizes the hand by itself — the player gets a
-    /// window to hack a card back under 21 before it locks in (see
-    /// `testHackingOutOfABustReopensTheHand` and `Hand.isResolved`).
-    /// Repeatedly hitting still reaches a bust; only `acceptBust()`
-    /// actually ends the turn from there.
-    func testHittingIntoABustDoesNotAutoResolveUntilAccepted() {
-        let engine = GameEngine(seed: 5)
-        engine.startHand()
-        var guardCount = 0
-        while !engine.activeHand.isBusted && guardCount < 20 {
-            engine.playerHit()
-            guardCount += 1
-        }
-        XCTAssertTrue(engine.activeHand.isBusted, "expected repeated hits to eventually bust")
-        XCTAssertFalse(engine.activeHand.isStood, "a bust must not auto-stand the hand")
-        XCTAssertFalse(engine.activeHand.isResolved, "a bust must stay reprievable, not resolved, until accepted")
-
-        engine.acceptBust()
-        XCTAssertTrue(engine.activeHand.bustLocked, "accepting the bust must lock it in")
-        XCTAssertTrue(engine.activeHand.isResolved, "a locked-in bust must count as resolved")
-    }
-
-    /// The actual "hack yourself out of busting" feature: once a hit
-    /// busts the active hand, Jack/Crash can still change the target
-    /// card's rank immediately, which can pull `bestValue` back under 21
-    /// and reopen the hand for normal play.
-    func testHackingOutOfABustReopensTheHand() throws {
-        var found: (seed: UInt64, engine: GameEngine)?
-        for seed: UInt64 in 0..<500 {
-            let runState = RunState(chargePool: HackChargePool(current: 10, max: 10))
-            let engine = GameEngine(runState: runState, seed: seed)
-            engine.startHand()
-            var guardCount = 0
-            while !engine.activeHand.isBusted && guardCount < 20 {
-                engine.playerHit()
-                guardCount += 1
-            }
-            guard engine.activeHand.isBusted else { continue }
-
-            // Try every card in the busted hand with Crash (a full reroll
-            // is the most reliable way to possibly land under 21) until
-            // one seed produces a recovery.
-            for card in engine.activeHand.cards {
-                try? engine.playerHack(.crash, cardID: card.id)
-                if !engine.activeHand.isBusted {
-                    found = (seed, engine)
-                    break
+    /// Repeatedly hits a single tower until it busts, detecting (and
+    /// skipping, via seed search) any seed where a stage transition
+    /// redeals every tower before that happens naturally — a transition
+    /// isn't a bug, it's just not what this test is trying to isolate.
+    func testHitIsANoOpOnAnAlreadyBustedTower() throws {
+        func findSeedWhereTowerBustsCleanly(limit: UInt64) -> (UInt64, GameEngine)? {
+            for seed: UInt64 in 0..<limit {
+                let engine = GameEngine(towerCount: 1, seed: seed)
+                engine.startStage()
+                var guardCount = 0
+                var transitionHappened = false
+                while !engine.towers[0].isBusted && guardCount < 15 {
+                    let before = engine.towers[0].cards.count
+                    engine.hit(towerIndex: 0)
+                    if engine.towers[0].cards.count != before + 1 {
+                        transitionHappened = true
+                        break
+                    }
+                    guardCount += 1
+                }
+                if engine.towers[0].isBusted && !transitionHappened {
+                    return (seed, engine)
                 }
             }
-            if found != nil { break }
+            return nil
         }
 
-        let (_, engine) = try XCTUnwrap(found, "expected at least one seed where Crash pulls a busted hand back under 21")
-        XCTAssertFalse(engine.activeHand.isBusted)
-        XCTAssertFalse(engine.activeHand.isResolved, "a recovered hand should be live again, not locked in")
-        XCTAssertFalse(engine.activeHand.isStood)
+        let (_, engine) = try XCTUnwrap(findSeedWhereTowerBustsCleanly(limit: 300), "expected a seed where tower 0 busts without a stage transition first")
+        XCTAssertEqual(engine.towers[0].power, 0)
+        let cardsAtBust = engine.towers[0].cards.count
+        engine.hit(towerIndex: 0)
+        XCTAssertEqual(engine.towers[0].cards.count, cardsAtBust, "hit must be a no-op once busted")
     }
 
-    func testStandDoesNotDrawCards() {
-        let engine = GameEngine(seed: 9)
-        engine.startHand()
-        let countBefore = engine.activeHand.cards.count
-        engine.playerStand()
-        XCTAssertEqual(engine.activeHand.cards.count, countBefore)
-        XCTAssertTrue(engine.activeHand.isStood)
+    // MARK: - redeal
+
+    func testRedealGivesAFreshTwoCardHand() {
+        let engine = GameEngine(seed: 4)
+        engine.startStage()
+        engine.redeal(towerIndex: 0)
+        XCTAssertEqual(engine.towers[0].cards.count, 2)
     }
 
-    /// A sparking card's mutation pair must survive at least one full
-    /// player decision before it resolves — this is the ordering the
-    /// legible-risk tell system depends on (CLAUDE.md §5.1).
-    func testPendingSparkSurvivesUntilACommittingAction() throws {
-        var found: (seed: UInt64, engine: GameEngine)?
-        for seed: UInt64 in 0..<300 {
-            let engine = GameEngine(runState: RunState(currentShiftIndex: 8), seed: seed)
-            engine.startHand()
-            if engine.activeHand.cards.contains(where: { $0.pendingMutations != nil }) {
-                found = (seed, engine)
+    // MARK: - Mob damage
+
+    /// Stage 25's HP multiplier (13.0) puts even the weakest mob (a Two,
+    /// 26 HP) above the maximum possible single-tower single-hit power
+    /// (21, a natural blackjack) — so the frontmost mob is guaranteed to
+    /// survive one tick, making the exact damage dealt directly assertable
+    /// with no seed search needed.
+    func testMobTakesDamageEqualToTotalPowerEachTick() {
+        let engine = GameEngine(runState: RunState(stageIndex: 25), towerCount: 1, seed: 5)
+        engine.startStage()
+        let mobID = engine.mobs[0].id
+        let hpBefore = engine.mobs[0].hp
+        engine.hit(towerIndex: 0)
+        let powerAfter = engine.totalPower
+        let mobAfter = engine.mobs.first { $0.id == mobID }
+        XCTAssertNotNil(mobAfter, "a mob with HP > 21 must survive a single 2-card hand's worth of damage")
+        XCTAssertEqual(mobAfter?.hp, hpBefore - powerAfter)
+    }
+
+    func testMobDyingIsRemovedAndEmitsMobKilled() throws {
+        var found = false
+        for seed: UInt64 in 0..<200 {
+            let engine = GameEngine(towerCount: 1, seed: seed)
+            engine.startStage()
+            guard let mobID = engine.mobs.first?.id else { continue }
+            engine.redeal(towerIndex: 0)
+            if engine.drainEvents().contains(.mobKilled(mobID: mobID)) {
+                XCTAssertFalse(engine.mobs.contains { $0.id == mobID })
+                found = true
                 break
             }
         }
-        let (_, engine) = try XCTUnwrap(found, "expected at least one seed to deal a sparking starting card")
-        XCTAssertTrue(engine.activeHand.cards.contains { $0.pendingMutations != nil })
-
-        engine.playerStand()
-        XCTAssertFalse(
-            engine.activeHand.cards.contains { $0.pendingMutations != nil },
-            "standing is a committing action and must resolve any pending spark"
-        )
+        XCTAssertTrue(found, "expected at least one seed where the opening tower's power kills the opening mob")
     }
 
-    /// A drained pool regenerates 1 charge at the start of the next hand
-    /// (testChargePoolRegeneratesOneWhenFullyDrained), so an empty-pool
-    /// hack attempt only actually fails once that single regenerated
-    /// charge is spent too — this spends it first, then confirms a
-    /// second hack in the same hand throws.
-    func testInsufficientChargesThrows() {
-        let runState = RunState(chargePool: HackChargePool(current: 0, max: 3))
-        let engine = GameEngine(runState: runState, seed: 2)
-        engine.startHand()
-        XCTAssertEqual(engine.runState.chargePool.current, 1, "expected the regenerated charge from a fully drained pool")
-        let targetID = engine.activeHand.cards[0].id
-        try? engine.playerHack(.jack, cardID: targetID)
-        XCTAssertEqual(engine.runState.chargePool.current, 0)
-
-        XCTAssertThrowsError(try engine.playerHack(.jack, cardID: targetID)) { error in
-            XCTAssertEqual(error as? GameEngine.HackError, .insufficientCharges)
+    /// Stage 70's HP multiplier (35.5) puts even the weakest mob (a Two,
+    /// 71 HP) above the maximum possible cumulative damage across its
+    /// starting 3 steps from a single tower (21 * 3 = 63) — guaranteed to
+    /// survive to reach the base rather than die first, no seed search
+    /// needed.
+    func testMobReachingBaseEmitsBaseHitAndIsRemoved() {
+        let engine = GameEngine(runState: RunState(stageIndex: 70), towerCount: 1, seed: 6)
+        engine.startStage()
+        let mobID = engine.mobs[0].id
+        var sawBaseHit = false
+        for _ in 0..<engine.stageConfig.mobStartingSteps {
+            engine.redeal(towerIndex: 0)
+            if engine.drainEvents().contains(.baseHit) {
+                sawBaseHit = true
+            }
         }
+        XCTAssertTrue(sawBaseHit, "expected the original mob to reach the base within its starting steps")
+        XCTAssertFalse(engine.mobs.contains { $0.id == mobID }, "a mob that reached base must be removed")
     }
 
-    func testCrashHackReplacesTargetCard() throws {
-        let engine = GameEngine(seed: 11)
-        engine.startHand()
-        let before = engine.activeHand.cards[0]
-        try engine.playerHack(.crash, cardID: before.id)
-        XCTAssertEqual(engine.activeHand.cards.count, 2)
-        XCTAssertFalse(engine.activeHand.cards.contains { $0.id == before.id })
+    // MARK: - Stage clear / defeat
+
+    func testStageClearAdvancesStageIndex() throws {
+        var found = false
+        outer: for seed: UInt64 in 0..<100 {
+            let engine = GameEngine(seed: seed)
+            engine.startStage()
+            let startingIndex = engine.runState.stageIndex
+            for _ in 0..<40 {
+                engine.redeal(towerIndex: 0)
+                if engine.runState.stageIndex > startingIndex {
+                    found = true
+                    break outer
+                }
+            }
+        }
+        XCTAssertTrue(found, "expected at least one seed to clear Stage 1 within 40 actions")
     }
 
-    func testCrashHackAlwaysLeavesAFreshSpark() throws {
-        // A latent bug fixed as part of the v0.2 systems pass: Jack/Spoof/
-        // Crash used to set sparkTell without ever giving the card a
-        // pendingMutations pair, so it could never resolve. All three now
-        // go through markSparking like every other corruption source.
-        let engine = GameEngine(seed: 11)
-        engine.startHand()
-        let before = engine.activeHand.cards[0]
-        try engine.playerHack(.crash, cardID: before.id)
-        let hacked = try XCTUnwrap(engine.activeHand.cards.first { $0.id != before.id })
-        XCTAssertNotNil(hacked.pendingMutations)
-        XCTAssertEqual(hacked.sparkTell, .visible)
+    // MARK: - Daily Breach
+
+    func testDailyBreachSameDateProducesSameOpeningState() {
+        let stateA = RunState.dailyBreach(dateKey: "2026-07-20")
+        let stateB = RunState.dailyBreach(dateKey: "2026-07-20")
+        XCTAssertEqual(stateA.seed, stateB.seed)
+
+        let engineA = GameEngine(runState: stateA)
+        let engineB = GameEngine(runState: stateB)
+        engineA.startStage()
+        engineB.startStage()
+
+        XCTAssertEqual(engineA.towers.map { $0.cards.map(\.description) }, engineB.towers.map { $0.cards.map(\.description) })
+        XCTAssertEqual(engineA.mobs.map { $0.card.description }, engineB.mobs.map { $0.card.description })
     }
 
-    func testPatchClearsSparkAndRestoresIntegrity() throws {
-        let engine = GameEngine(seed: 4)
-        engine.startHand()
-        let targetID = engine.activeHand.cards[0].id
-        try engine.playerHack(.patch, cardID: targetID)
-        let patched = try XCTUnwrap(engine.activeHand.cards.first { $0.id == targetID })
-        XCTAssertNil(patched.sparkTell)
-        XCTAssertNil(patched.pendingMutations)
-        XCTAssertEqual(patched.integrity, 100)
+    func testDailyBreachDifferentDatesDiverge() {
+        let stateA = RunState.dailyBreach(dateKey: "2026-07-20")
+        let stateB = RunState.dailyBreach(dateKey: "2026-07-21")
+        XCTAssertNotEqual(stateA.seed, stateB.seed)
     }
 }

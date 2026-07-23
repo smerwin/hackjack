@@ -38,32 +38,20 @@ public enum Rank: Int, CaseIterable, Comparable, Sendable {
     public static func < (lhs: Rank, rhs: Rank) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
-/// Shifts a rank by a signed delta, clamped to the Two...Ace range. Shared by
-/// the player's Jack hack and the dealer's mirrored Jack hack (§5.3/§5.4) so
-/// both sides run through identical logic.
-public func shiftedRank(_ rank: Rank, by delta: Int) -> Rank {
-    let clampedRaw = min(max(rank.rawValue + delta, Rank.two.rawValue), Rank.ace.rawValue)
-    return Rank(rawValue: clampedRaw) ?? rank
-}
-
+/// A card is now purely an identity — rank, suit, id. No integrity,
+/// spark tell, or pending mutations: corruption/hacking are gone from
+/// this game entirely (see CLAUDE.md's tower-defense reimagining). The
+/// same `Card` type serves double duty as a tower's hand card and as a
+/// mob's identity (`Mob.card`) — "mobs are a parade of cards," literally.
 public struct Card: Identifiable, Equatable, Sendable {
     public let id: UUID
     public var rank: Rank
     public var suit: Suit
-    /// Hidden stat; below a shift-scaled threshold the card is sparking. 0...100.
-    public var integrity: Int
-    /// nil when not corrupted. Set at generation or by a hack; cleared on resolve/Patch.
-    public var sparkTell: SparkTell?
-    /// The two mutations this card could resolve into. Shown to the player
-    /// before they commit to an action that plays into the card (§5.1) —
-    /// never resolved silently.
-    public var pendingMutations: (MutationType, MutationType)?
 
-    public init(rank: Rank, suit: Suit, integrity: Int = 100, id: UUID = UUID()) {
+    public init(rank: Rank, suit: Suit, id: UUID = UUID()) {
         self.id = id
         self.rank = rank
         self.suit = suit
-        self.integrity = integrity
     }
 
     public static func == (lhs: Card, rhs: Card) -> Bool { lhs.id == rhs.id }

@@ -3,14 +3,15 @@ import SwiftUI
 /// Shared terminal/script-kiddie visual language. Centralized so the whole
 /// app reads as one system instead of scattered color literals — a
 /// direct response to "the buttons don't explain themselves": monospace
-/// everywhere, green-on-black terminal chrome, corruption stays purple so
-/// it still reads as "an anomaly breaking through the normal system."
+/// everywhere, green-on-black terminal chrome, purple reserved for the
+/// moment a strike actually lands so it reads as a jolt against the
+/// normal green system.
 enum Term {
     static let green = Color(red: 0.31, green: 1.0, blue: 0.44)
     static let dimGreen = Color(red: 0.31, green: 1.0, blue: 0.44).opacity(0.55)
     static let background = Color.black
     static let alertRed = Color(red: 1.0, green: 0.28, blue: 0.35)
-    static let corruptionPurple = Color(red: 0.72, green: 0.4, blue: 1.0)
+    static let strikePurple = Color(red: 0.72, green: 0.4, blue: 1.0)
 
     static let cornerRadius: CGFloat = 3
 
